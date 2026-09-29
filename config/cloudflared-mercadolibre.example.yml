@@ -1,0 +1,6 @@
+tunnel: YOUR_TUNNEL_UUID
+
+ingress:
+  - hostname: oauth.example.com
+    service: http://127.0.0.1:8789
+  - service: http_status:404

@@ -1,0 +1,9 @@
+{
+  "endpoint": "https://suoxie.codes/v1/images/edits/async",
+  "model": "gpt-image-2",
+  "api_key_env": "YOYOU_IMAGE_API_KEY",
+  "size": "1024x1024",
+  "poll_interval_seconds": 3,
+  "poll_timeout_seconds": 240,
+  "poll_endpoint_template": ""
+}

@@ -1,0 +1,86 @@
+{
+  "version": "0.1",
+  "default_mode": "draft_only",
+  "modules": [
+    {
+      "id": "collection_intake",
+      "name": "商品采集",
+      "kind": "deterministic",
+      "writes_marketplace": false,
+      "outputs": ["source_snapshot"]
+    },
+    {
+      "id": "evidence_normalizer",
+      "name": "事实整理",
+      "kind": "deterministic",
+      "writes_marketplace": false,
+      "outputs": ["normalized_evidence", "missing_evidence"]
+    },
+    {
+      "id": "listing_copy_agent",
+      "name": "标题与描述提案",
+      "kind": "llm_structured_output",
+      "writes_marketplace": false,
+      "outputs": ["copy_proposal", "unresolved_questions"]
+    },
+    {
+      "id": "image_plan_agent",
+      "name": "图片方案",
+      "kind": "llm_structured_output",
+      "writes_marketplace": false,
+      "outputs": ["image_plan", "image_risk_flags"]
+    },
+    {
+      "id": "category_attribute_agent",
+      "name": "类目与必填属性",
+      "kind": "llm_with_official_read_tools",
+      "writes_marketplace": false,
+      "outputs": ["category_candidate", "attribute_proposal"]
+    },
+    {
+      "id": "pricing_guard",
+      "name": "成本与售价校验",
+      "kind": "deterministic",
+      "writes_marketplace": false,
+      "outputs": ["price_scenarios", "profit_status"]
+    },
+    {
+      "id": "human_review",
+      "name": "人工审核",
+      "kind": "human_gate",
+      "writes_marketplace": false,
+      "outputs": ["approval_record"]
+    },
+    {
+      "id": "publish_preview",
+      "name": "发布请求预览",
+      "kind": "deterministic",
+      "writes_marketplace": false,
+      "outputs": ["publish_request_preview"]
+    },
+    {
+      "id": "publish_executor",
+      "name": "正式发布",
+      "kind": "official_api_write",
+      "enabled": false,
+      "writes_marketplace": true,
+      "requires_explicit_user_authorization": true,
+      "outputs": ["platform_result", "platform_error"]
+    },
+    {
+      "id": "operations_reader",
+      "name": "订单与经营数据回读",
+      "kind": "official_api_read",
+      "writes_marketplace": false,
+      "outputs": ["operation_snapshot"]
+    },
+    {
+      "id": "learning_memory",
+      "name": "已确认案例记忆",
+      "kind": "local_memory",
+      "writes_marketplace": false,
+      "accepts_only_human_approved": true,
+      "outputs": ["approved_example"]
+    }
+  ]
+}

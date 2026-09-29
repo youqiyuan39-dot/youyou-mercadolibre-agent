@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>悠悠美客多 AI 上架</title><link rel="stylesheet" href="/dashboard.css"></head>
+<body>
+  <aside>
+    <div class="brand">🧺 悠悠美客多<br>AI 上架</div>
+    <div class="store"><strong>Mercado Libre Store</strong><small>已连接本机商品工作台</small></div>
+    <nav>
+      <span>工作台</span><a class="active" href="/">▣ 商品处理</a><a href="/editor">✎ 详情编辑</a>
+      <a href="/review">✓ 商品审核</a><a href="/publish">↑ 发布中心</a>
+      <span>数据</span><button disabled>⌁ 商品采集 <em>扩展完成</em></button>
+      <span>设置</span><a href="/stores">◉ 店铺管理</a><button disabled>☰ 店铺运营 <em>待接入</em></button><a href="/ai-settings">⚙ AI 全局设置</a><a href="/ai-settings#modelConfig">▣ API 授权管理</a>
+    </nav>
+  </aside>
+  <main>
+    <header><div><div class="crumb">工作台 / 商品处理</div><h1>商品处理</h1><p>1688 采集后自动进入这里，检查资料后进入详情编辑。</p></div><div class="local">本机草稿模式</div></header>
+    <section class="steps"><div class="active"><b>1</b> 商品处理 <i id="stepProcessing">0</i></div><div><b>2</b> 商品审核 <i id="stepReview">0</i></div><div><b>3</b> 发布中心 <i id="stepPublish">0</i></div></section>
+    <section id="stats" class="stats"></section>
+    <section class="table-card">
+      <div class="toolbar"><h2>商品任务列表</h2><div><input id="search" placeholder="搜索标题、链接或类目"><span id="resultCount">0 条结果</span></div></div>
+      <div class="batchbar"><label><input id="selectAll" type="checkbox"> 全选当前页</label><b id="selectedCount">已选 0 条</b><span>勾选商品后可批量进入审核、暂停、复制或移入回收站</span><button id="enterReviewSelected" disabled>进入审核</button><button id="pauseSelected" disabled>暂停 AI 流程</button><button id="copySelected" disabled>复制商品</button><button id="recycleSelected" disabled>移入回收站</button></div>
+      <div class="table-head"><span></span><span>商品</span><span>来源</span><span>图片</span><span>状态</span><span>操作</span></div>
+      <div id="rows"></div>
+      <div id="empty" class="empty">还没有商品。安装并使用“悠悠采集”后会自动进入这里。</div>
+      <div class="pager"><span id="pageInfo">第 1 / 1 页</span><button id="prevPage">上一页</button><button id="nextPage">下一页</button></div>
+    </section>
+    <dialog id="logDialog"><button id="closeLog">关闭</button><h2>AI 调用日志</h2><p>日志不包含 API Key；失败记录只保留错误摘要。</p><div id="logRows"></div></dialog>
+  </main>
+  <script src="/dashboard.js"></script>
+</body></html>

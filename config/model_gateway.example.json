@@ -1,0 +1,17 @@
+{
+  "text_and_vision": {
+    "base_url": "https://suoxie.codes/v1",
+    "api_key_env": "SUOXIE_API_KEY",
+    "model": "请填实际可用模型名"
+  },
+  "image": {
+    "base_url": "https://suoxie.codes/v1",
+    "api_key_env": "SUOXIE_API_KEY",
+    "model": "请填实际可用生图模型名"
+  },
+  "limits": {
+    "max_products_per_batch": 10,
+    "max_images_per_product": 3,
+    "stop_on_budget_unknown": true
+  }
+}

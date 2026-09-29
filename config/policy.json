@@ -1,0 +1,15 @@
+{
+  "default_mode": "draft_only",
+  "require_human_approval_before_publish": true,
+  "required_evidence": [
+    "supplier_url",
+    "purchase_cost",
+    "packed_weight",
+    "packed_dimensions"
+  ],
+  "gtin_policy": "real_or_official_exemption",
+  "allow_ai_estimated_packaging": false,
+  "allow_generated_compatibility_claims": false,
+  "allow_generated_primary_image_without_review": false,
+  "profit_status_when_cost_incomplete": "REAL_PROFIT_UNVERIFIED"
+}

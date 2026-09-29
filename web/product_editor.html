@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>美客多商品详情编辑</title>
+  <link rel="stylesheet" href="/editor.css">
+</head>
+<body>
+  <aside>
+    <div class="brand">🧺 悠悠美客多<br>AI 上架</div>
+    <div class="store-card"><strong>Mercado Libre Store</strong><small>本机草稿工作台</small></div>
+    <nav class="side-nav">
+      <span>工作台</span>
+      <a href="/">▣ 商品处理</a>
+      <a class="active" href="/editor">✎ 详情编辑</a>
+      <a href="/review">✓ 商品审核</a>
+      <a href="/publish">↑ 发布中心</a>
+      <span>数据</span>
+      <button type="button" disabled>⌁ 商品采集 <em>扩展完成</em></button>
+      <span>设置</span>
+      <a href="/stores">◉ 店铺管理</a>
+      <button type="button" disabled>☰ 店铺运营 <em>待接入</em></button>
+      <a href="/ai-settings">⚙ AI 全局设置</a>
+      <a href="/ai-settings#modelConfig">▣ API 授权管理</a>
+    </nav>
+    <h2 class="queue-title">当前商品队列</h2>
+    <div id="draftList" class="draft-list"></div>
+  </aside>
+  <main>
+    <header>
+      <div>
+        <div class="eyebrow">商品处理 / 详情编辑</div>
+        <h1 id="pageTitle">选择一个商品</h1>
+      </div>
+      <button id="saveButton" class="primary" disabled>保存商品</button>
+    </header>
+
+    <div id="message" class="message hidden"></div>
+    <section id="emptyState" class="empty">从左边选择一个商品草稿。</section>
+    <form id="editor" class="hidden" onsubmit="return false">
+      <section class="status-card">
+        <div><span>当前状态</span><strong id="stage"></strong></div>
+        <div><span>缺少资料</span><strong id="errorCount"></strong></div>
+        <div><span>提醒</span><strong id="warningCount"></strong></div>
+        <p id="validationText"></p>
+      </section>
+
+      <nav class="jump-nav">
+        <a href="#basic">基本资料</a><a href="#physical">包装</a><a href="#pricing">定价</a><a href="#sites">站点</a>
+        <a href="#attributes">属性</a><a href="#ai">AI结果</a><a href="#aiImages">AI生图</a><a href="#sourceImages">采集原图</a><a href="#images">上架图片</a><a href="#evidence">来源证据</a>
+      </nav>
+
+      <section id="basic" class="panel">
+        <h2>基本资料</h2>
+        <div id="latestCapture" class="candidate hidden"></div>
+        <div class="grid two">
+          <label>商品标题<input id="title" maxlength="300"></label>
+          <label>商品组名称<input id="familyName" maxlength="300"></label>
+          <label>类目 ID<span class="inline-action"><input id="categoryId" placeholder="留空时按标题自动匹配"><button id="queryCategory" type="button">查询当前 ID</button></span></label>
+          <label>美客多分类路径<span class="inline-action"><input id="categoryPath" readonly placeholder="尚未选择分类"><button id="chooseCategory" type="button">选择分类</button></span></label>
+          <label>库存<input id="quantity" type="number" min="0" step="1"></label>
+          <label>卖家 SKU<input id="sellerSku" maxlength="120"></label>
+          <label>币种<select id="currency"><option>USD</option></select></label>
+          <label>购买方式<select id="buyingMode"><option value="buy_it_now">立即购买</option></select></label>
+          <label>商品状态<select id="condition"><option value="new">全新</option><option value="used">二手</option></select></label>
+        </div>
+        <label>商品描述<textarea id="description" rows="7"></textarea></label>
+        <div class="grid four">
+          <label>条码处理<select id="barcodeType"><option value="NO_GTIN">无条码商品</option><option value="GTIN">有 GTIN</option><option value="EAN">有 EAN</option><option value="UPC">有 UPC</option></select></label>
+          <label>条码或无条码原因<input id="gtin" placeholder="无条码时自动生成待官方校验原因"></label>
+          <label>兼容证据<input id="compatibility" placeholder="型号、说明书或供应商证据"></label>
+          <label>目录商品<label class="check-line"><input id="catalogListing" type="checkbox">启用 catalog_listing</label></label>
+        </div>
+        <div class="grid three">
+          <label>质保类型<input id="warrantyType" value="No warranty"></label>
+          <label>质保值 ID<input id="warrantyTypeValueId" value="6150835"></label>
+          <label>质保时长<input id="warrantyTime" placeholder="例如 90 days，可留空"></label>
+        </div>
+      </section>
+
+      <section id="pricing" class="panel">
+        <div class="panel-title"><div><h2>竞品定价与利润区间</h2><p class="tip">完整 AI 流程会读取目标站点竞品；采购、国内运费、汇率和包装成本齐全后给出 10%–30% 可接受区间，并优先靠近 30%。</p></div><button id="refreshCompetitors" type="button">刷新竞品与利润区间</button><span class="warning-tag">利润为估算值</span></div>
+        <div class="grid four">
+          <label>采购价(CNY)<input id="purchaseCost" type="number" min="0" step="0.01"></label>
+          <label>国内运费(CNY)<input id="domesticShipping" type="number" min="0" step="0.01"></label>
+          <label>汇率(CNY/USD)<input id="exchangeRate" type="number" min="0" step="0.0001"></label>
+          <label>包装成本(USD)<input id="packagingCost" type="number" min="0" step="0.01"></label>
+          <label>跨境运费(USD，净回款模式仅展示)<input id="crossBorderFreight" type="number" min="0" step="0.01"></label>
+          <label>其他成本(USD)<input id="otherCost" type="number" min="0" step="0.01"></label>
+          <label>利润测算参考净回款(USD，不直接发布)<input id="targetNet" type="number" min="0" step="0.01"></label>
+          <label>估算剩余(USD)<input id="estimatedRemainder" readonly></label>
+        </div>
+        <p id="pricingNote" class="tip">这是卖家净回款减已知成本的估算；其他成本留空时暂按 0 USD 计算并明确提示，不阻止审核或进入发布中心。</p>
+        <div id="pricingIntelligence" class="candidate">尚未取得竞品数据；请先选择站点并保存，再运行完整 AI 流程或点击刷新。</div>
+      </section>
+
+      <section id="physical" class="panel">
+        <div class="panel-title"><h2>运输包装</h2><span class="tip">官方上传必填；可使用供应商或官方仓规则估算，人工确认后可锁定</span></div>
+        <div class="grid five">
+          <label>总重(g)<input id="weight" type="number" min="0" step="0.01"></label>
+          <label>长(cm)<input id="length" type="number" min="0" step="0.01"></label>
+          <label>宽(cm)<input id="width" type="number" min="0" step="0.01"></label>
+          <label>高(cm)<input id="height" type="number" min="0" step="0.01"></label>
+          <label>证据状态<select id="physicalStatus"><option>HUMAN_EDITED_UNVERIFIED</option><option>USER_ESTIMATED</option><option>SUPPLIER_PACKAGING_INFO</option><option>MEASURED_CONFIRMED</option></select></label>
+          <label>可信度<select id="physicalConfidence"><option value="UNVERIFIED">未核实</option><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label>
+        </div>
+        <div class="metric-row"><div>实际重量<strong id="actualWeight">-</strong></div><div>体积重量<strong id="volumetricWeight">-</strong></div><div>计费重量<strong id="billableWeight">-</strong></div></div>
+        <div class="locks">
+          <label><input type="checkbox" id="lockWeight">锁定重量</label>
+          <label><input type="checkbox" id="lockDimensions">锁定尺寸</label>
+          <label><input type="checkbox" id="lockTitle">锁定标题</label>
+          <label><input type="checkbox" id="lockImages">锁定图片</label>
+        </div>
+      </section>
+
+      <section id="sites" class="panel">
+        <h2>目标站点设置</h2>
+        <p class="tip">这里只选择发布站点、物流方式和站点标题。所有最终发布金额统一在下方“SKU × 站点独立定价”矩阵填写。</p>
+        <div id="siteChecks" class="checks"></div>
+        <div class="table-wrap"><table><thead><tr><th>site_id</th><th>最终金额</th><th>平台跨境运费(仅展示)</th><th>logistic_type</th><th>站点标题覆盖</th></tr></thead><tbody id="sitePricingRows"></tbody></table></div>
+      </section>
+
+      <section id="attributes" class="panel">
+        <div class="panel-title"><h2>类目属性</h2><button id="addAttribute" type="button">新增属性</button></div>
+        <div class="grid three category-actions">
+          <label>美客多查询站点<select id="categorySite"><option value="CBT">CBT 跨境</option><option value="MLM">墨西哥 MLM</option><option value="MLB">巴西 MLB</option><option value="MLC">智利 MLC</option><option value="MLA">阿根廷 MLA</option><option value="MCO">哥伦比亚 MCO</option></select></label>
+          <button id="discoverCategory" type="button">仅查询类目</button>
+          <button id="fillCategoryAttributes" type="button" class="primary">查询类目并 AI 回填属性</button>
+        </div>
+        <p class="tip">仅查询类目使用美客多官方公开接口，不消耗 AI 额度；中文采集标题不会直接预测，避免错分。AI 模式会先生成不发布的内部分类词，再只回填证据明确支持的属性。</p>
+        <div id="categoryInfo" class="category-info">输入类目 ID 后查询。</div>
+        <div id="requiredSummary" class="required-summary"></div>
+        <div id="attributeRows" class="attribute-grid"></div>
+      </section>
+
+      <section id="ai" class="panel">
+        <h2>AI 结果</h2>
+        <div id="aiBox" class="empty small">尚未生成 AI 提案。</div>
+      </section>
+
+      <section id="aiImages" class="panel">
+        <div class="panel-title"><div><h2>AI 生成图片</h2><p class="tip">使用你自己账号的生图 API；完整流程生成后自动排到上架图片区前面，发布前仍需人工核对。</p></div><span id="aiImageStatus" class="warning-tag">尚未生成</span></div>
+        <div class="grid three ai-image-controls">
+          <label>画面文字语言<select id="imageLanguage"><option value="auto">自动（推荐）</option><option value="none">全部无文字</option><option value="es">西班牙语</option><option value="pt">葡萄牙语（巴西）</option></select></label>
+          <div class="language-gate"><strong>语言门禁</strong><span id="languageGateText">主图不允许任何文字</span></div>
+          <button id="generateAiImages" type="button" class="primary">提交 3 张 AI 生图</button>
+        </div>
+        <div id="imagePromptRows" class="prompt-grid"></div>
+        <div id="aiGeneratedGallery" class="gallery"></div>
+        <div id="skuImageModule" class="hidden sku-image-module"><div class="panel-title"><div><h3>多 SKU 专属首图</h3><p class="tip">每个 SKU 生成 1 张无文字白底首图；最终上架时放在该 SKU 通用图片之前。</p></div><button id="generateSkuImages" type="button">生成 SKU 专属图</button></div><div id="skuImageStatus" class="tip"></div><div id="skuGeneratedGallery" class="gallery"></div></div>
+      </section>
+
+      <section id="sourceImages" class="panel">
+        <div class="panel-title"><h2>采集原图</h2><span class="tip">原始图片永久保留</span></div>
+        <p class="tip">自动区分商品原图和 SKU 图片。勾选需要用于上架的图片；取消勾选只会移出上架区。</p>
+        <div id="sourceGallery" class="gallery"></div>
+        <h3>详情图片（只作货源证据）</h3>
+        <p class="tip">详情图片不会自动放进上架图片区。</p>
+        <div id="detailGallery" class="gallery"></div>
+      </section>
+
+      <section id="images" class="panel">
+        <div class="panel-title"><h2>上架图片 <span id="imageCount" class="count-badge">0 张</span></h2><div class="image-actions"><button id="uploadImages" type="button">上传本地图片</button><input id="uploadInput" class="hidden" type="file" accept="image/png,image/jpeg,image/webp" multiple><button id="restoreImages" type="button">恢复默认</button><label><input type="checkbox" id="imagesReviewed">图片已人工核对</label></div></div>
+        <div class="link-image"><input id="linkImageUrl" placeholder="https:// 图片链接"><button id="addLinkImage" type="button">添加链接图片</button></div>
+        <p class="tip">第一张就是首图。可以拖动排序、设为首图、左右移动或移出上架区；原图不会删除。</p>
+        <div id="gallery" class="gallery"></div>
+      </section>
+
+      <section id="evidence" class="panel">
+        <h2>来源证据（只读）</h2>
+        <div id="sourceSummary" class="metric-row"></div>
+        <div id="skuSection" class="hidden">
+          <div class="panel-title"><div><h3>多 SKU 采集与核价</h3><p class="tip">每个 SKU 独立保存采购价、库存、包裹重尺、卖家 SKU、条码、组合属性、图片，以及每个站点的刊登金额。选择“当前核价 SKU”只会同步该规格；其他 SKU 不会被覆盖。</p></div><label>当前核价 SKU<select id="currentSku"></select></label></div>
+          <p id="skuPublishHint" class="tip"></p>
+          <div class="sku-pricing-matrix-block">
+            <div class="matrix-title"><div><h3>SKU × 站点独立定价</h3><p class="tip">行是 SKU，列是站点。这里只填写最终发布金额；上方利润测算参考值不会写入发布请求。</p></div><span class="matrix-badge">唯一价格入口</span></div>
+            <div id="skuPricingMatrix" class="table-wrap"></div>
+          </div>
+          <div id="skuCards" class="sku-cards"></div>
+        </div>
+        <div id="evidenceBox" class="evidence"></div>
+      </section>
+
+      <footer>只有点击“提交 AI 生图”才会消耗生图额度；本页不发布商品，保存时会先备份旧稿，再更新当前商品。</footer>
+    </form>
+    <nav id="detailNav" class="detail-nav hidden" aria-label="编辑导航">
+      <strong>编辑导航</strong>
+      <a href="#basic">商品来源</a><a href="#evidence">采集信息</a><a href="#ai">AI 商品内容</a>
+      <a href="#aiImages">AI 生成图片</a><a href="#images">商品上架图片</a><a href="#sites">CBT 全球上架字段</a>
+      <a href="#pricing">1688 货源核价</a><a href="#attributes">类目属性</a>
+    </nav>
+    <dialog id="categoryDialog" class="category-dialog">
+      <div class="dialog-title"><div><strong>选择美客多分类</strong><small id="categoryBreadcrumb">根目录</small></div><button id="closeCategoryDialog" type="button">关闭</button></div>
+      <div id="categoryTreeStatus" class="tip"></div>
+      <div id="categoryTreeList" class="category-tree-list"></div>
+    </dialog>
+    <dialog id="imagePreviewDialog" class="image-preview-dialog">
+      <div class="dialog-title"><strong id="imagePreviewTitle">图片预览</strong><button id="closeImagePreview" type="button">关闭</button></div>
+      <div class="image-preview-stage"><img id="imagePreviewFull" alt="图片预览"></div>
+    </dialog>
+  </main>
+  <script src="/editor.js"></script>
+</body>
+</html>

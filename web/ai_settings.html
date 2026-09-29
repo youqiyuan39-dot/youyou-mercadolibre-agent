@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 全局设置</title><link rel="stylesheet" href="/dashboard.css"></head>
+<body>
+<aside><div class="brand">🧺 悠悠美客多<br>AI 上架</div><div class="store"><strong>Mercado Libre Store</strong><small>已连接本机商品工作台</small></div><nav>
+<span>工作台</span><a href="/">▣ 商品处理</a><a href="/editor">✎ 详情编辑</a><a href="/review">✓ 商品审核</a><a href="/publish">↑ 发布中心</a>
+<span>数据</span><button disabled>⌁ 商品采集 <em>扩展完成</em></button><span>设置</span><a href="/stores">◉ 店铺管理</a><button disabled>☰ 店铺运营 <em>待接入</em></button><a class="active" href="/ai-settings">⚙ AI 全局设置</a><a class="active" href="/ai-settings#modelConfig">▣ API 授权管理</a>
+</nav></aside>
+<main><header><div><div class="crumb">设置 / AI 全局设置</div><h1>AI API 与生成策略</h1><p>密钥使用当前 Windows 用户的 DPAPI 加密，只向页面返回“已保存”状态。</p></div><button id="saveAll" class="primary">保存设置</button></header>
+<div id="notice" class="notice">正在读取本机配置…</div>
+<section class="settings-tabs"><b>模型配置</b><span>生成与图片</span><span>内容提示词</span><span>自动上架</span><span>1688 核价</span></section>
+<section id="modelConfig"><div id="modelCards" class="model-cards"></div></section>
+<section class="strategy-card"><h2>生成与图片</h2><div class="form-grid">
+<label>画面文字语言<select id="imageLanguage"><option value="auto">自动匹配市场（推荐）</option><option value="none">全部无文字</option><option value="es">西班牙语</option><option value="pt">葡萄牙语</option></select></label>
+<label>参考原图数量<input id="referenceCount" type="number" min="1" max="10" value="3"></label>
+<label class="check"><input id="generatePerSku" type="checkbox" checked> 多 SKU 为每个 SKU 生成专属图片</label>
+<label class="check"><input id="autoProcess" type="checkbox"> 采集后自动开始完整 AI 流程（会消耗 API 额度）</label>
+</div><p class="hint">主图始终禁止文字；营销图只有选择站点语言后才允许该语言。多 SKU 缺少对应实物图时会阻止生成，不会拿其他 SKU 图片代替。</p></section>
+</main><div class="save-dock"><span id="saveHint">修改后点击保存，密钥不会回显</span><button id="saveDock" class="primary">保存全部设置</button></div><script src="/ai-settings.js"></script></body></html>

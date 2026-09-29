@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXDT8AcB/2lkG1htv8N6ZuWq1SK/ihDjirNwZNKlAGR7MgTNH2t5vjrdgOt5ojbnMxvzACCqLchzsl335kmYySe3xL8sbgvSZPazv3D9SJ0QGbdj/Bm6X2IbaSjyJ9iwDv2IAN+fmlb7//MySMPppQuv401CLjbiLgcGTGJipv5oqPNCiakDc+p9/G4DdoNYBCHOwVwpPbyRRQEZPn5UK7D2KIANeRHQAghYWWJ8zS+9S/VCB4odMsWXVWBuM2rsP+LNlZBjNW0lKw3cr1toOM2dCfaa02gvvWZuU06nXTE0QHBpVJPP86BRf6Jq5YglVp0rsrU9hsQVpJE4t+DY0QIDAQAB",
+  "name": "悠悠采集",
+  "version": "0.7.1",
+  "description": "1688商品页浮窗：优先读取结构化商品、SKU、价格和包装数据，自动进入本机处理队列。",
+  "permissions": [],
+  "host_permissions": [
+    "https://*.1688.com/*",
+    "https://*.alicdn.com/*",
+    "https://*.tbcdn.cn/*",
+    "https://itemcdn.tmall.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://detail.1688.com/offer/*.html*"
+      ],
+      "js": [
+        "page_bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://detail.1688.com/offer/*.html*"
+      ],
+      "js": [
+        "collector_core.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "悠悠采集"
+  }
+}

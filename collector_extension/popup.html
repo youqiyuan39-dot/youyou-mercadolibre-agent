@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>1688采集器</title>
+  <style>
+    body{font-family:system-ui,sans-serif;width:300px;margin:16px;color:#1f2937}label{display:block;margin:10px 0 4px}input{box-sizing:border-box;width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px}button{width:100%;margin-top:12px;padding:9px;border:0;border-radius:7px;background:#2563eb;color:white;font-weight:600}button:disabled{opacity:.5}#status{margin-top:10px;line-height:1.5;white-space:pre-wrap}.note{font-size:12px;color:#64748b}
+  </style>
+</head>
+<body>
+  <strong>采集当前1688商品</strong>
+  <p class="note">自动分开采集商品原图、SKU 图片和详情图片；不读取 Cookie 和浏览器存储。</p>
+  <label for="port">本机端口</label>
+  <input id="port" value="8765" inputmode="numeric">
+  <label for="token">本次连接码</label>
+  <input id="token" type="password" autocomplete="off">
+  <button id="collect">采集并保存到本机</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
