@@ -30,9 +30,9 @@
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = '🧺 悠悠采集';
+  button.innerHTML = `<img src="${chrome.runtime.getURL('youyou-logo.png')}" alt="" width="24" height="24" style="mix-blend-mode:screen">悠悠采集`;
   button.title = '打开悠悠采集';
-  button.style.cssText = 'float:right;border:0;border-radius:9px;padding:11px 16px;background:#087df1;color:#fff;box-shadow:0 5px 16px rgba(8,125,241,.32);font-size:15px;font-weight:700;cursor:pointer';
+  button.style.cssText = 'float:right;display:flex;align-items:center;gap:7px;border:0;border-radius:9px;padding:11px 16px;background:#087df1;color:#fff;box-shadow:0 5px 16px rgba(8,125,241,.32);font-size:15px;font-weight:700;cursor:pointer';
 
   const status = panel.querySelector('[data-status]');
   const modeButtons = [...panel.querySelectorAll('button[data-mode]')];

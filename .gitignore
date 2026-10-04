@@ -10,7 +10,14 @@ config/*.json
 !config/policy.json
 config/*.yml
 !config/*.example.yml
-assets/
+assets/*
+!assets/brand/
+assets/brand/*
+!assets/brand/youyou-logo.png
+!assets/ui/
+assets/ui/*
+!assets/ui/embedded-v3.css
+!assets/ui/embedded-v3.js
 drafts/
 draft_versions/
 data/

@@ -1262,8 +1262,10 @@ def create_edited_version(
             "package": {key: _number(package_row.get(key)) for key in ("weight_g", "length_cm", "width_cm", "height_cm")},
             "barcode_type": _clean_text(row.get("barcode_type"), 20) or "NO_GTIN", "gtin": _clean_text(row.get("gtin"), 120),
             "variation_attributes": [
-                {"name": _clean_text(item.get("name"), 80), "value": _clean_text(item.get("value"), 300)}
-                for item in row.get("variation_attributes") or [] if isinstance(item, dict) and _clean_text(item.get("name"), 80)
+                {"id": _clean_text(item.get("id"), 80), "name": _clean_text(item.get("name"), 80),
+                 "value": _clean_text(item.get("value"), 300), "value_id": _clean_text(item.get("value_id"), 120)}
+                for item in row.get("variation_attributes") or []
+                if isinstance(item, dict) and (_clean_text(item.get("id"), 80) or _clean_text(item.get("name"), 80))
             ][:20],
             "source_image_count": int(_number(row.get("source_image_count")) or 0),
             "site_pricing": [
@@ -1561,7 +1563,7 @@ def make_handler(root: Path = ROOT):
                 candidate = (assets_dir / relative).resolve()
                 if assets_dir.resolve() not in candidate.parents:
                     return self._json(403, {"ok": False, "error": "forbidden"})
-                content_type = "image/png" if candidate.suffix.lower() == ".png" else "image/jpeg"
+                content_type = {".png": "image/png", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}.get(candidate.suffix.lower(), "image/jpeg")
                 return self._file(candidate, content_type)
             return self._json(404, {"ok": False, "error": "not_found"})
 

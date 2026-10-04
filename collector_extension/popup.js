@@ -1,11 +1,5 @@
-const portInput = document.querySelector('#port');
-const tokenInput = document.querySelector('#token');
 const collectButton = document.querySelector('#collect');
 const statusBox = document.querySelector('#status');
-
-chrome.storage.local.get(['port'], value => {
-  if (value.port) portInput.value = value.port;
-});
 
 async function collectVisible1688Product() {
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -181,23 +175,13 @@ collectButton.addEventListener('click', async () => {
   collectButton.disabled = true;
   statusBox.textContent = '正在读取当前商品…';
   try {
-    const port = String(portInput.value || '8765').trim();
-    const token = tokenInput.value.trim();
-    if (!/^\d{2,5}$/.test(port) || !token) throw new Error('请填写本机端口和本次连接码');
     const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
     if (!tab?.id || !/^https:\/\/detail\.1688\.com\/offer\/\d+\.html/i.test(tab.url || '')) {
       throw new Error('请先打开1688商品详情页');
     }
     const [{result}] = await chrome.scripting.executeScript({target: {tabId: tab.id}, func: collectVisible1688Product});
-    const response = await fetch(`http://127.0.0.1:${port}/collect`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Local-Intake-Token': token},
-      body: JSON.stringify(result)
-    });
-    const value = await response.json();
-    if (!response.ok) throw new Error(value.error || `本机接收失败 ${response.status}`);
-    await chrome.storage.local.set({port});
-    tokenInput.value = '';
+    const value = await chrome.runtime.sendMessage({type: 'YOUYOU_COLLECT', tabId: tab.id, payload: result});
+    if (!value?.ok) throw new Error(value?.error || '本机采集失败');
     const counts = value.image_counts || {};
     const imageText = `商品图${counts.product || 0}张、SKU图${counts.sku || 0}张、详情图${counts.detail || 0}张`;
     statusBox.textContent = value.draft_created

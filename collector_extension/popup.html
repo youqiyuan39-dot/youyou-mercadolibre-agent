@@ -9,12 +9,9 @@
   </style>
 </head>
 <body>
-  <strong>采集当前1688商品</strong>
+  <strong style="display:flex;align-items:center;gap:8px"><span style="display:grid;place-items:center;width:36px;height:36px;border-radius:8px;background:#1476ad;overflow:hidden"><img src="youyou-logo.png" alt="" width="36" height="36" style="mix-blend-mode:screen"></span>采集当前1688商品</strong>
   <p class="note">自动分开采集商品原图、SKU 图片和详情图片；不读取 Cookie 和浏览器存储。</p>
-  <label for="port">本机端口</label>
-  <input id="port" value="8765" inputmode="numeric">
-  <label for="token">本次连接码</label>
-  <input id="token" type="password" autocomplete="off">
+  <p class="note">先启动本机工作台；扩展会自动连接新版或经典版。</p>
   <button id="collect">采集并保存到本机</button>
   <div id="status"></div>
   <script src="popup.js"></script>

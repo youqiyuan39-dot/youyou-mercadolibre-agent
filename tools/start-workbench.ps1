@@ -1,4 +1,8 @@
-param([switch]$CheckOnly)
+param(
+    [switch]$CheckOnly,
+    [ValidateSet('classic', 'new')]
+    [string]$Version = 'classic'
+)
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 Set-Location -LiteralPath $projectRoot
@@ -19,12 +23,20 @@ if (-not $selected) {
     exit 1
 }
 
-$pythonArgs = @($selected.Prefix) + @('-m', 'src.draft_editor', '--port', '8789')
+if ($Version -eq 'new') {
+    $module = 'src.workbench_v3'
+    $port = '8790'
+} else {
+    $module = 'src.draft_editor'
+    $port = '8789'
+}
+$pythonArgs = @($selected.Prefix) + @('-m', $module, '--port', $port)
 Write-Host "Project: $projectRoot"
 if ($CheckOnly) {
     Write-Host "Python command: $($selected.Command) $($selected.Prefix -join ' ')"
+    Write-Host "Module: $module; Port: $port"
     exit 0
 }
-Write-Host 'Open http://127.0.0.1:8789 after the server starts.'
+Write-Host "Open http://127.0.0.1:$port after the server starts."
 & $selected.Command @pythonArgs
 exit $LASTEXITCODE

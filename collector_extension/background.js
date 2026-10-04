@@ -1,4 +1,4 @@
-const LOCAL_COLLECT_URL = 'http://127.0.0.1:8789/api/collect';
+const LOCAL_COLLECT_URLS = ['http://127.0.0.1:8790/api/collect', 'http://127.0.0.1:8789/api/collect'];
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'YOUYOU_DETAIL_IMAGES') {
@@ -30,20 +30,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
   if (message?.type !== 'YOUYOU_COLLECT') return false;
-  if (!/^https:\/\/detail\.1688\.com\/offer\/\d+\.html/i.test(sender.tab?.url || '')) {
-    sendResponse({ok: false, error: '只允许采集1688商品详情页'});
-    return false;
-  }
-  fetch(LOCAL_COLLECT_URL, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-Youyou-Collector': '1'},
-    body: JSON.stringify(message.payload)
-  }).then(async response => {
-    const value = await response.json();
-    if (!response.ok) throw new Error(value.error || `本机接收失败 ${response.status}`);
-    sendResponse(value);
-  }).catch(error => {
-    sendResponse({ok: false, error: error.message === 'Failed to fetch' ? '请先打开悠悠商品工作台' : error.message});
-  });
+  (async () => {
+    const tab = sender.tab || (message.tabId ? await chrome.tabs.get(message.tabId) : null);
+    if (!/^https:\/\/detail\.1688\.com\/offer\/\d+\.html/i.test(tab?.url || '')) {
+      throw new Error('只允许采集1688商品详情页');
+    }
+    for (const url of LOCAL_COLLECT_URLS) {
+      let response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-Youyou-Collector': '1'},
+          body: JSON.stringify(message.payload)
+        });
+      } catch (error) {
+        if (error instanceof TypeError) continue;
+        throw error;
+      }
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || `本机接收失败 ${response.status}`);
+      return value;
+    }
+    throw new Error('请先打开悠悠商品工作台');
+  })().then(sendResponse).catch(error => sendResponse({ok: false, error: error.message}));
   return true;
 });

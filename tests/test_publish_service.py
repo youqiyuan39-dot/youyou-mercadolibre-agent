@@ -106,6 +106,28 @@ class PublishServiceTests(unittest.TestCase):
         self.assertTrue(result["valid"])
         self.assertEqual([row["category_id"] for row in result["sites"]], ["MLB455591", "MLM455591"])
 
+    def test_verified_site_category_uses_actual_mexico_id(self):
+        draft = sample_draft()
+        draft["payload"]["category_id"] = "CBT437802"
+        draft["payload"]["sites_to_sell"] = [{"site_id": "MLM", "net_proceeds": 14}]
+        draft.setdefault("evidence", {})["site_category_checks"] = {
+            "MLM": {"category_id": "MLM438037", "source": "official_category_api"}
+        }
+
+        class CategoryClient:
+            def category(self, category_id):
+                self_id = "MLM-WRENCHES" if category_id == "MLM438037" else "CBT-WRENCHES"
+                if category_id == "MLM437802":
+                    raise ValueError("404")
+                return {"id": category_id, "name": "Adjustable Wrenches", "settings": {
+                    "catalog_domain": self_id, "status": "enabled", "listing_allowed": True,
+                }}
+
+        result = publishing.validate_category_sites(draft, CategoryClient())
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["sites"][0]["category_id"], "MLM438037")
+        self.assertTrue(result["warnings"])
+
     def test_payload_matches_user_products_create_shape(self):
         payload = publishing.build_user_product_payload(sample_draft(), ["PIC1"])[0]
         self.assertEqual(payload["family_name"], "Brush Cutter Carburetor Kit")

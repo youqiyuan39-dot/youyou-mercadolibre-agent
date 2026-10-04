@@ -82,9 +82,15 @@ def validate_category_sites(draft: dict[str, Any], client: Any | None = None) ->
     if semantic_issue:
         result["issues"].append(semantic_issue)
     suffix = category_id[3:]
+    verified_site_categories = (draft.get("evidence") or {}).get("site_category_checks") or {}
     for site_id in sites:
-        target_id = f"{site_id}{suffix}"
+        check = verified_site_categories.get(site_id) if isinstance(verified_site_categories, dict) else None
+        verified_id = str((check or {}).get("category_id") or "").strip().upper() if isinstance(check, dict) else ""
+        target_id = verified_id if re.fullmatch(rf"{site_id}\d+", verified_id) else f"{site_id}{suffix}"
         row: dict[str, Any] = {"site_id": site_id, "category_id": target_id, "compatible": False}
+        if verified_id:
+            row["mapping_source"] = str(check.get("source") or "manual_official_category_check")
+            result["warnings"].append(f"{site_id} 使用经官方核验的同域类目作发布前检查；实际目标类目和可售状态以平台发布结果为准")
         try:
             target = api.category(target_id)
             target_settings = target.get("settings") or {}

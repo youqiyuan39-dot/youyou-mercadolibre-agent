@@ -164,7 +164,7 @@ class DraftEditorTests(unittest.TestCase):
                     "sku_id": "sku-1", "variant": "14件套", "seller_sku": "AUTO-1-001",
                     "purchase_cost_cny": 10.3, "listing_price_usd": 18.99, "target_net_proceeds_usd": 8.4, "available_quantity": 2,
                     "package": {"weight_g": 80, "length_cm": 20, "width_cm": 23, "height_cm": 2},
-                    "barcode_type": "NO_GTIN", "gtin": "", "variation_attributes": [{"name": "套装", "value": "14件套"}],
+                    "barcode_type": "NO_GTIN", "gtin": "", "variation_attributes": [{"id": "MPN", "name": "MPN", "value": "2045A"}],
                     "source_image_count": 3,
                     "site_pricing": [{"site_id": "MLB", "net_proceeds": 8.4, "logistic_type": "remote"}],
                 }],
@@ -175,6 +175,7 @@ class DraftEditorTests(unittest.TestCase):
         self.assertEqual(saved["evidence"]["sku_details"][0]["seller_sku"], "AUTO-1-001")
         self.assertEqual(saved["evidence"]["sku_details"][0]["package"]["height_cm"], 2)
         self.assertEqual(saved["evidence"]["sku_details"][0]["listing_price_usd"], 18.99)
+        self.assertEqual(saved["evidence"]["sku_details"][0]["variation_attributes"][0]["id"], "MPN")
         self.assertEqual(saved["evidence"]["sku_details"][0]["target_net_proceeds_usd"], 8.4)
         self.assertEqual(saved["pricing_plan"]["target_net_proceeds_usd"], 8.4)
         self.assertEqual(saved["payload"]["sites_to_sell"][0]["net_proceeds"], 8.4)

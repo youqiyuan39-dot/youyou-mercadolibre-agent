@@ -4,7 +4,10 @@
   "name": "悠悠采集",
   "version": "0.7.1",
   "description": "1688商品页浮窗：优先读取结构化商品、SKU、价格和包装数据，自动进入本机处理队列。",
-  "permissions": [],
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
   "host_permissions": [
     "https://*.1688.com/*",
     "https://*.alicdn.com/*",
@@ -38,6 +41,17 @@
     }
   ],
   "action": {
-    "default_title": "悠悠采集"
-  }
+    "default_title": "悠悠采集",
+    "default_icon": "youyou-logo.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "youyou-logo.png"
+      ],
+      "matches": [
+        "https://detail.1688.com/*"
+      ]
+    }
+  ]
 }

@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "调试经典工作台（8789）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.draft_editor",
+      "args": ["--port", "8789"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "调试新版工作台（8790）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.workbench_v3",
+      "args": ["--port", "8790"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

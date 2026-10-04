@@ -1,0 +1,48 @@
+/* Embedded legacy pages have one content column, not an invisible sidebar track. */
+html { color-scheme: light; }
+body { display:block!important; grid-template-columns:none!important; margin:0!important; min-width:0; }
+body>aside { display:none!important; }
+body>main { display:block; width:100%!important; max-width:1600px; min-width:0; margin:0 auto!important; padding:28px clamp(20px,3vw,48px) 48px!important; }
+main>header,.head { position:relative!important; inset:auto!important; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; width:100%; margin:0 0 20px; }
+main>header>div,.head>div { flex:1; min-width:240px; }
+main>header h1,.head h1 { white-space:nowrap; margin:8px 0; }
+main>header p,.head p { max-width:900px; margin:8px 0; line-height:1.7; }
+main>header>button { position:static!important; flex:none; }
+main>header:has(>h1) { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 18px; }
+main>header:has(>h1)>.crumb,main>header:has(>h1)>h1,main>header:has(>h1)>p { grid-column:1; }
+main>header:has(>h1)>button { grid-column:2; grid-row:1/4; }
+.panel,.target,main>section { min-width:0; }
+.steps { width:100%; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.steps a { display:flex; align-items:center; gap:10px; padding:10px 14px; color:inherit; text-decoration:none; border-radius:8px; }
+.steps a.active { background:#e7f1fb; color:#075985; font-weight:700; }
+.steps a:hover { background:#eef5fb; }
+.steps a b { flex:none; }
+.review-card { grid-template-columns:26px 72px minmax(200px,1fr) minmax(300px,1.2fr) auto; }
+.review-card>div { min-width:0; }
+.review-card .meta { grid-template-columns:repeat(3,minmax(90px,1fr)); }
+.review-card .actions { flex-wrap:wrap; }
+.meta strong,.meta span { overflow-wrap:anywhere; }
+.btn,button,.actions a { white-space:nowrap; }
+.top { flex-wrap:wrap; gap:16px; }
+.tabs { flex-wrap:wrap; }
+.target { max-width:none; width:100%; padding:16px 20px; }
+.target label { display:flex; align-items:center; gap:8px; }
+.target small { display:block; line-height:1.6; margin-top:7px; }
+.embedded-note { padding:12px 16px; margin:16px 0; border:1px solid #fed7aa; border-radius:10px; background:#fff7ed; color:#9a3412; line-height:1.7; }
+.review-search { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:16px 0; }
+.review-search input[type=search] { flex:1; min-width:220px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; }
+.review-search small { margin-left:auto; color:#64748b; }
+.review-empty { padding:40px; text-align:center; color:#64748b; }
+.review-checklist { display:block; color:#9a641b; margin-top:7px; line-height:1.6; overflow-wrap:anywhere; }
+.table-wrap { max-width:100%; overflow-x:auto; }
+.review-pagination { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding-top:18px; }
+.review-page-hidden,.review-search-hidden { display:none!important; }
+[data-embedded-hidden] { display:none!important; }
+body.dark { color-scheme:dark; background:#101a2b!important; color:#edf4ff!important; }
+body.dark main,body.dark .panel,body.dark .block,body.dark main>section,body.dark input,body.dark textarea,body.dark select,body.dark button,body.dark .btn,body.dark .market,body.dark .image-card { background:#19263a; color:#edf4ff; border-color:#344458; }
+body.dark .meta div,body.dark .copy-box,body.dark .fact,body.dark .attribute,body.dark .sku-gallery,body.dark .prompt { background:#22314a; color:#edf4ff; border-color:#344458; }
+body.dark .muted,body.dark small,body.dark .crumb,body.dark p { color:#aab7ca; }
+body.dark .embedded-note,body.dark .warning { background:#3b2b18; color:#ffdb9d; border-color:#806037; }
+body.dark .steps a.active { background:#25486c; color:#d5eaff; }
+@media(max-width:1200px) { .review-card { grid-template-columns:26px 72px minmax(0,1fr); } .review-card .meta,.review-card .actions { grid-column:3; } }
+@media(max-width:850px) { .oauth-form,.form,.detail-grid,.copy-grid { grid-template-columns:1fr!important; } .review-card .meta { grid-template-columns:repeat(3,minmax(0,1fr)); } .steps a { padding:10px 8px; } .publish-row { grid-template-columns:24px 64px minmax(0,1fr); } .publish-row .actions { grid-column:3; } }
