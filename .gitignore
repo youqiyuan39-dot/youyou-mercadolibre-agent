@@ -14,6 +14,7 @@ assets/*
 !assets/brand/
 assets/brand/*
 !assets/brand/youyou-logo.png
+!assets/brand/youyou-original.ico
 !assets/ui/
 assets/ui/*
 !assets/ui/embedded-v3.css
