@@ -1,19 +1,30 @@
 {
   "manifest_version": 3,
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXDT8AcB/2lkG1htv8N6ZuWq1SK/ihDjirNwZNKlAGR7MgTNH2t5vjrdgOt5ojbnMxvzACCqLchzsl335kmYySe3xL8sbgvSZPazv3D9SJ0QGbdj/Bm6X2IbaSjyJ9iwDv2IAN+fmlb7//MySMPppQuv401CLjbiLgcGTGJipv5oqPNCiakDc+p9/G4DdoNYBCHOwVwpPbyRRQEZPn5UK7D2KIANeRHQAghYWWJ8zS+9S/VCB4odMsWXVWBuM2rsP+LNlZBjNW0lKw3cr1toOM2dCfaa02gvvWZuU06nXTE0QHBpVJPP86BRf6Jq5YglVp0rsrU9hsQVpJE4t+DY0QIDAQAB",
   "name": "悠悠采集",
-  "version": "0.7.1",
+  "version": "0.8.9",
   "description": "1688商品页浮窗：优先读取结构化商品、SKU、价格和包装数据，自动进入本机处理队列。",
   "permissions": [
-    "activeTab",
-    "scripting"
+    "storage"
   ],
   "host_permissions": [
     "https://*.1688.com/*",
     "https://*.alicdn.com/*",
     "https://*.tbcdn.cn/*",
     "https://itemcdn.tmall.com/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://meli.zying.net/*",
+    "http://127.0.0.1:8789/*",
+    "http://localhost:8789/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "youyou-logo.png"
+      ],
+      "matches": [
+        "https://detail.1688.com/*"
+      ]
+    }
   ],
   "background": {
     "service_worker": "background.js"
@@ -24,6 +35,7 @@
         "https://detail.1688.com/offer/*.html*"
       ],
       "js": [
+        "packaging.js",
         "page_bridge.js"
       ],
       "run_at": "document_start",
@@ -34,8 +46,37 @@
         "https://detail.1688.com/offer/*.html*"
       ],
       "js": [
+        "local_transport.js",
+        "packaging.js",
         "collector_core.js",
         "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://meli.zying.net/*"
+      ],
+      "js": [
+        "local_transport.js",
+        "zying_detail_parser.js",
+        "zying_list_cache.js",
+        "capture_panel.js",
+        "zying_detail.js",
+        "market_reference.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://meli.zying.net/*",
+        "https://*.1688.com/*"
+      ],
+      "js": [
+        "local_transport.js",
+        "capture_panel.js",
+        "offer_candidates_parser.js",
+        "offer_candidates.js"
       ],
       "run_at": "document_idle"
     }
@@ -44,14 +85,5 @@
     "default_title": "悠悠采集",
     "default_icon": "youyou-logo.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "youyou-logo.png"
-      ],
-      "matches": [
-        "https://detail.1688.com/*"
-      ]
-    }
-  ]
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXDT8AcB/2lkG1htv8N6ZuWq1SK/ihDjirNwZNKlAGR7MgTNH2t5vjrdgOt5ojbnMxvzACCqLchzsl335kmYySe3xL8sbgvSZPazv3D9SJ0QGbdj/Bm6X2IbaSjyJ9iwDv2IAN+fmlb7//MySMPppQuv401CLjbiLgcGTGJipv5oqPNCiakDc+p9/G4DdoNYBCHOwVwpPbyRRQEZPn5UK7D2KIANeRHQAghYWWJ8zS+9S/VCB4odMsWXVWBuM2rsP+LNlZBjNW0lKw3cr1toOM2dCfaa02gvvWZuU06nXTE0QHBpVJPP86BRf6Jq5YglVp0rsrU9hsQVpJE4t+DY0QIDAQAB"
 }

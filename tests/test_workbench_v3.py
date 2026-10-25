@@ -102,7 +102,14 @@ class CoreTests(unittest.TestCase):
         fake = SimpleNamespace(publish_preflight_issues=lambda d: [], _prepare_multi_sku_ai_workflow=lambda d: {}, generate_quality_checked_proposal=lambda *a: {}, call_responses_api=lambda *a: raw, start_sku_image_generation=lambda *a: {}, _output_text=lambda r: r['output'][0]['content'][0]['text'], EditorError=ValueError, DRAFTS_DIR=Path('.'), ROOT=Path('.'))
         pipeline = SimpleNamespace(sanitized_product_context=lambda d: {}, _input_images=lambda d: [])
         install(fake, pipeline)
-        result = fake.call_responses_api({}, {'text': {'format': {'name': 'category_attributes'}}, 'input': json.dumps({'existing_attributes': []})})
+        schema={'properties':{'attributes':{'items':{'properties':{'id':{'type':'string'}}}},
+                              'unresolved':{'items':{'type':'string'}}}}
+        request={'text':{'format':{'name':'category_attributes','schema':schema}},
+                 'input':json.dumps({'existing_attributes':[],
+                                     'supplier':{'attributes':{'颜色':'蓝色'}},
+                                     'official_attributes':[{'id':'GTIN','value_type':'string','tags':{'required':True}},
+                                                            {'id':'COLOR','value_type':'string','tags':{'required':True}}]})}
+        result = fake.call_responses_api({}, request)
         data = json.loads(fake._output_text(result))
         self.assertEqual([a['id'] for a in data['attributes']], ['COLOR'])
         self.assertEqual(data['unresolved'], ['GTIN'])
@@ -162,9 +169,9 @@ class CoreTests(unittest.TestCase):
         d['payload']['title'] = '0.25 L Sprayer'
         self.assertFalse(any('容量' in i for i in review_issues(d)))
 
-    def test_pending_no_barcode_reason_stays_blocked(self):
-        d = sample(); d['evidence']['gtin_or_exemption'] = 'NO_GTIN_PENDING_CATEGORY_CHECK'
-        self.assertTrue(any('无条码' in i for i in review_issues(d)))
+    def test_pending_no_barcode_marker_does_not_create_a_reminder(self):
+        d = sample(); d['payload']['attributes'] = []; d['evidence']['gtin_or_exemption'] = 'NO_GTIN_PENDING_CATEGORY_CHECK'
+        self.assertFalse(any('条码' in i for i in review_issues(d)))
 
     def test_unknown_selected_sku_does_not_fall_back_silently(self):
         d = sample(); d["evidence"]["current_pricing_sku_id"] = "unknown"
@@ -206,7 +213,7 @@ class WorkbenchTests(unittest.TestCase):
         d = json.loads((self.root / "drafts" / r["name"]).read_text(encoding="utf-8"))
         galleries = d["evidence"]["image_review"]["sku_source_galleries"]
         self.assertNotEqual(galleries[0]["gallery"][0]["remote_url"], galleries[1]["gallery"][0]["remote_url"])
-        self.assertFalse(d["human_approved"]); self.assertEqual(d["payload"]["available_quantity"], None)
+        self.assertFalse(d["human_approved"]); self.assertEqual(d["payload"]["available_quantity"], 200)
         self.assertEqual(d["payload"]["attributes"], [])
 
     def test_missing_multisku_image_binding_rejected(self):

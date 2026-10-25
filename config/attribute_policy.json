@@ -1,0 +1,8 @@
+{
+  "version": "USER_ATTRIBUTE_POLICY_20261019_STRICT_GENERIC_V2",
+  "origin": "USER_BRAND_POLICY",
+  "brand_default": "Generic",
+  "authorization": "用户本轮明确：我们所有的品牌全部严格规定generic。刊登品牌统一Generic，覆盖旧general默认及供应商品牌/旧人工品牌；不修改源采集事实。",
+  "boundary": "仅用于本机刊登资料及生成/发布校验，Generic是用户刊登政策，非供应商事实。未发布或改线上商品。",
+  "brand_mode": "STRICT_GENERIC"
+}

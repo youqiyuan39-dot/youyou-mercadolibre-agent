@@ -1,0 +1,10 @@
+{
+  "model": "qwen3.5-9b-local",
+  "model_file": "models/Qwen3.5-9B-Q4_K_M.gguf",
+  "mmproj": "models/mmproj-F16.gguf",
+  "runtime": "runtime/llama/llama-server.exe",
+  "vision": true,
+  "context_size": 8192,
+  "device": "none",
+  "gpu_layers": 0
+}

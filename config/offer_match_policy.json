@@ -1,0 +1,12 @@
+{
+  "version": "OFFER_MATCH_MLM_V1",
+  "site_id": "MLM",
+  "min_confidence": 0.75,
+  "min_title_similarity": 0.35,
+  "weights": {"title": 0.3, "specifications": 0.25, "quantity": 0.2, "package": 0.15, "image": 0.1},
+  "missing_image_multiplier": 0.9,
+  "weight_relative_tolerance": 0.2,
+  "dimension_relative_tolerance": 0.15,
+  "max_candidates": 100,
+  "notes": "Engineering defaults, not calibrated probabilities. Missing image is null; renormalize observed weights then apply penalty. Package comparison is advisory, never supplier dims validation or packaging adoption."
+}

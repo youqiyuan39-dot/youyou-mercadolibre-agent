@@ -1,0 +1,170 @@
+[
+  {
+    "sku_id": "MLM3530136697",
+    "site_id": "MLM",
+    "source_url": "https://meli.zying.net/#/goods/MLM3530136697",
+    "captured_at": "2026-10-21T11:39:24.062000+00:00",
+    "main_image": null,
+    "field_origin": {
+      "dimensions": null,
+      "weight": null,
+      "volumetric_weight": null,
+      "price": null,
+      "net_proceeds": null,
+      "seller": "text",
+      "fulfillment": "text",
+      "category_path": null,
+      "commission": null,
+      "listed_at": "text",
+      "sales": null,
+      "title": null,
+      "main_image": null
+    },
+    "reference": {},
+    "price_observations": [],
+    "fields": {
+      "dimensions": "",
+      "weight": "",
+      "volumetric_weight": "",
+      "price": "",
+      "net_proceeds": "",
+      "seller": "CNJIANSHIXIANXIONGHUAFUMXR",
+      "fulfillment": "自发货",
+      "category_path": "",
+      "commission": "",
+      "listed_at": "2026-09-21(1 个月前)",
+      "sales": "",
+      "title": ""
+    },
+    "reconstruction_note": "RECONSTRUCTED_FROM_NORMALIZED_EVIDENCE; not original browser payload; parser version unknown",
+    "zying_profit_reference": {
+      "inputs": {
+        "purchase_cost_cny": {
+          "raw": ""
+        },
+        "shipping_cost_cny": {
+          "raw": ""
+        },
+        "converted_price_cny": {
+          "raw": ""
+        },
+        "commission_pct": {
+          "raw": ""
+        },
+        "selling_price_mxn": {
+          "raw": ""
+        }
+      },
+      "results": {
+        "net_profit": {
+          "raw": ""
+        },
+        "margin_pct": {
+          "raw": ""
+        }
+      }
+    }
+  },
+  {
+    "sku_id": "MLM3530136697",
+    "site_id": "MLM",
+    "source_url": "https://meli.zying.net/#/goods/MLM3530136697",
+    "captured_at": "2026-10-21T11:49:45.334000+00:00",
+    "main_image": null,
+    "field_origin": {
+      "dimensions": null,
+      "weight": null,
+      "volumetric_weight": null,
+      "price": null,
+      "net_proceeds": null,
+      "seller": "text",
+      "fulfillment": "text",
+      "category_path": null,
+      "commission": null,
+      "listed_at": "text",
+      "sales": null,
+      "title": null,
+      "main_image": null
+    },
+    "reference": {},
+    "price_observations": [],
+    "fields": {
+      "dimensions": "",
+      "weight": "",
+      "volumetric_weight": "",
+      "price": "",
+      "net_proceeds": "",
+      "seller": "CNJIANSHIXIANXIONGHUAFUMXR",
+      "fulfillment": "自发货",
+      "category_path": "",
+      "commission": "",
+      "listed_at": "2026-09-21(1 个月前)",
+      "sales": "",
+      "title": ""
+    },
+    "reconstruction_note": "RECONSTRUCTED_FROM_NORMALIZED_EVIDENCE; not original browser payload; parser version unknown",
+    "zying_profit_reference": {
+      "inputs": {
+        "purchase_cost_cny": {
+          "raw": ""
+        },
+        "shipping_cost_cny": {
+          "raw": ""
+        },
+        "converted_price_cny": {
+          "raw": ""
+        },
+        "commission_pct": {
+          "raw": ""
+        },
+        "selling_price_mxn": {
+          "raw": ""
+        }
+      },
+      "results": {
+        "net_profit": {
+          "raw": ""
+        },
+        "margin_pct": {
+          "raw": ""
+        }
+      }
+    }
+  },
+  {
+    "sku_id": "MLM6281697608",
+    "site_id": "MLM",
+    "source_url": "https://meli.zying.net/#/goods/MLM6281697608",
+    "captured_at": "2026-10-21T07:57:52.287000+00:00",
+    "main_image": null,
+    "field_origin": {},
+    "reference": {},
+    "price_observations": [],
+    "fields": {
+      "dimensions": "",
+      "weight": "",
+      "volumetric_weight": "",
+      "price": "",
+      "net_proceeds": "",
+      "seller": "CNTIANJINSHIYAOQIANGSHAMXR",
+      "fulfillment": "自发货",
+      "category_path": "",
+      "commission": "",
+      "listed_at": "2026-09-24(1 个月前)",
+      "sales": "",
+      "title": ""
+    },
+    "reconstruction_note": "RECONSTRUCTED_FROM_NORMALIZED_EVIDENCE; not original browser payload; parser version unknown",
+    "zying_profit_reference": {
+      "inputs": {},
+      "results": {
+        "net_profit": {
+          "raw": ""
+        },
+        "margin_pct": {
+          "raw": ""
+        }
+      }
+    }
+  }
+]

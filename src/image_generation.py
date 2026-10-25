@@ -257,7 +257,7 @@ def _persist_sku_galleries(root: Path, draft_name: str, job: dict[str, Any]) -> 
 
 
 def _persist_common_gallery(root: Path, draft_name: str, job: dict[str, Any]) -> None:
-    """Place generated common images before retained source images for review."""
+    """Use only current generated images for listing; archive previous gallery."""
     draft_path = root / "drafts" / Path(draft_name).name
     if not draft_path.is_file():
         raise ImageGenerationError("公共图片已生成，但没有找到对应草稿。")
@@ -271,9 +271,8 @@ def _persist_common_gallery(root: Path, draft_name: str, job: dict[str, Any]) ->
     review["generated_gallery"] = generated
     locks = (draft.get("edit_metadata") or {}).get("field_locks") or {}
     if not locks.get("images") and generated:
-        existing = [dict(row) for row in (review.get("gallery") or []) if isinstance(row, dict)]
-        combined = generated + [row for row in existing if str(row.get("local_file") or row.get("remote_url") or "") not in {str(x.get("local_file") or x.get("remote_url") or "") for x in generated}]
-        review["gallery"] = combined[:8]
+        from .quality_closeout import replace_generated_gallery
+        replace_generated_gallery(review, generated)
     review["common_gallery_updated_at"] = datetime.now(timezone.utc).isoformat()
     draft["human_approved"] = False
     versions = root / "draft_versions"
@@ -309,6 +308,14 @@ def run_job(root: Path, draft_name: str, prompts: list[dict[str, str]], source_i
             destination = output_dir / f"{index + 1:02d}-{uuid.uuid4().hex[:8]}{suffix}"
             destination.write_bytes(image)
             job["items"][index].update({"status": "done", "local_file": destination.relative_to(root / "assets").as_posix(), "provider": meta})
+            # Keep a pause requested during the API call; do not overwrite it with stale queued status.
+            if json.loads(job_path.read_text(encoding="utf-8")).get("status") == "paused":
+                job["status"] = "paused"
+                job["updated_at"] = datetime.now(timezone.utc).isoformat()
+                job_path.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+                if job.get("job_type") == "sku_images": _persist_sku_galleries(root, draft_name, job)
+                else: _persist_common_gallery(root, draft_name, job)
+                return
             job_path.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
         job["status"] = "done"
         if job.get("job_type") == "sku_images":

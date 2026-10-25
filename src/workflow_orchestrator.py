@@ -129,7 +129,7 @@ def workflow_item(draft_path: Path, root: Path = ROOT) -> dict[str, Any]:
         (((draft.get("evidence") or {}).get("image_review") or {}).get("gallery") or [])
     )
     return {
-        "draft": draft_path.relative_to(root).as_posix() if draft_path.is_relative_to(root) else str(draft_path),
+        "draft": str(draft_path),
         "product": (draft.get("payload") or {}).get("family_name")
         or (draft.get("payload") or {}).get("title")
         or draft_path.stem,

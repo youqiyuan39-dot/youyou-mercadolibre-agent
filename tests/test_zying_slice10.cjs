@@ -1,0 +1,22 @@
+const assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),vm=require('vm');
+const dom=require('./zying_minidom.cjs'),parser=require('../collector_extension/zying_detail_parser.js'),cache=require('../collector_extension/zying_list_cache.js');
+const html=fs.readFileSync(path.join(__dirname,'fixtures/zying_detail_slice10.html'),'utf8'),scope=dom(html).querySelector('main');
+const entries=parser.readDOM(scope),payload=parser.parse({skuId:'MLM3536800017',visibleIds:['MLM3536800017'],entries,sourceUrl:'https://meli.zying.net/#/goods/MLM3536800017',capturedAt:'2026-10-22T01:00:00Z',mainImage:parser.mainImage(scope,scope)});
+payload.diagnostics=parser.diagnostics(scope,entries,payload);payload.reconstruction_note='RECONSTRUCTED 按主人描述重建；不是原始页面DOM';payload.extension_version='0.8.8';
+assert.equal(scope.querySelector('input').getAttribute('value'),null);assert.equal(scope.querySelector('input').value,'10');
+for(const [key,value] of Object.entries({dimensions:'10 × 10 × 10 cm',weight:'146 g',volumetric_weight:'166.67 g',brand:'Generic',price:'MXN 549.63',commission:'18.5%'}))assert.equal(payload.fields[key],value,key);
+assert.equal(payload.reference.shipping_cost_cny.value,'38.82');assert.equal(payload.field_origin.brand,'text');
+assert.equal(payload.diagnostics.fields.profit.hit,false);assert.match(payload.diagnostics.fields.profit.reason,/未试算/);assert.match(payload.diagnostics.fields.net_proceeds.reason,/待补/);assert.equal(payload.diagnostics.fields.category_path.reason,'类目未选择');
+const snapshot=parser.domSnapshot(scope);assert.ok(snapshot.find(r=>r.label==='商品尺寸').nodes.filter(n=>n.tagName==='INPUT').every(n=>n.value==='10'));assert.ok(JSON.stringify(snapshot).includes('166.67'));
+const table=dom('<table><tr><th>SKU</th><th>子类目</th><th>售价 MXN</th><th>售价 USD</th><th>净收银价</th></tr><tr><td>MLM3536800017</td><td>1:Herramientas > 2:Herramientas de Jardín > 3:Repuestos > 4:Carburadores</td><td>549.63</td><td>29.11</td><td>25.11 USD / 461.39 MXN</td></tr></table>');
+const now=Date.parse(payload.captured_at),rows=cache.read(table,now);assert.equal(rows.length,1);assert.equal(rows[0].sku_id,'MLM3536800017');assert.match(rows[0].category_path,/Carburadores/);assert.match(rows[0].price,/USD 29.11/);
+assert.equal(Object.keys(cache.bounded({},Array.from({length:2100},(_,i)=>({...rows[0],sku_id:'MLM'+(1000000+i)})),now)).length,2000);
+assert.equal(Object.keys(cache.bounded({},rows,now+8*86400000)).length,0);
+(async()=>{
+ const context=vm.createContext({chrome:{storage:{local:{get:async()=>({[cache.KEY]:{[rows[0].sku_id]:{...rows[0],cached_at:new Date().toISOString()}}})}}},Date,globalThis:null});context.globalThis=context;
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../collector_extension/zying_list_cache.js'),'utf8'),context);
+ await context.YouyouZyingList.merge(payload);assert.match(payload.fields.price,/MXN 549.63 \/ USD 29.11/);assert.match(payload.fields.net_proceeds,/461.39 MXN/);assert.equal(payload.field_origin.category_path,'zying_list_cache');
+ const localized=cache.read(dom('<table><tr><th>SKU</th><th>价格</th></tr><tr><td>MLM3536800017</td><td>549.63比索 ≈29.11美元</td></tr></table>'));assert.match(localized[0].price,/29.11美元/);
+ payload.captured_at=new Date().toISOString();payload.dom_snapshot=snapshot;
+ if(process.argv.includes('--payload'))process.stdout.write(JSON.stringify(payload));else console.log('slice10 live-property dimensions / adjacent volume / brand / neutral states / bounded list cache passed');
+})().catch(e=>{console.error(e);process.exitCode=1});

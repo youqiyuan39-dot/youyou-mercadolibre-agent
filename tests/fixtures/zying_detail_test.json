@@ -1,0 +1,36 @@
+{
+  "test_data": true,
+  "sku_id": "MLM1234567890",
+  "site_id": "MLM",
+  "source_url": "https://meli.zying.net/#/goods/detail/MLM1234567890",
+  "captured_at": "2026-10-21T08:00:00Z",
+  "main_image": "https://example.invalid/test-only.jpg",
+  "fields": {
+    "dimensions": "320 × 200 × 180 mm",
+    "weight": "2.5 kg",
+    "volumetric_weight": "3 kg",
+    "price": "MXN 1,200.50 / USD 60.25",
+    "net_proceeds": "MXN 900 / USD 45",
+    "seller": "TEST_SELLER",
+    "fulfillment": "自发货",
+    "category_path": "工具 > 园林工具 > 链锯",
+    "commission": "15.5%",
+    "listed_at": "2026-10-10",
+    "sales": "1,234 件",
+    "title": "TEST_DATA 链锯（离线样本）"
+  },
+  "entries": [
+    {"label": "尺寸", "value": "320 × 200 × 180 mm"},
+    {"label": "重量", "value": "2.5 kg"},
+    {"label": "计泡重", "value": "3 kg"},
+    {"label": "售价", "value": "MXN 1,200.50 / USD 60.25"},
+    {"label": "净收益价", "value": "MXN 900 / USD 45"},
+    {"label": "卖家", "value": "TEST_SELLER"},
+    {"label": "仓储", "value": "自发货"},
+    {"label": "类目路径", "value": "工具 > 园林工具 > 链锯"},
+    {"label": "佣金", "value": "15.5%"},
+    {"label": "上架时间", "value": "2026-10-10"},
+    {"label": "销量", "value": "1,234 件"},
+    {"label": "商品标题", "value": "TEST_DATA 链锯（离线样本）"}
+  ]
+}

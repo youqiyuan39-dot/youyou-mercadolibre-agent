@@ -1,0 +1,29 @@
+{
+  "version": "2026-10-19-follow-market-sales-margin-gt10-v6",
+  "minimum_margin_pct": "10",
+  "ads_net_pct": "5",
+  "tax_reserve_net_pct": "5",
+  "returns_base_pct": "3",
+  "other_cny": "0",
+  "scope": "对标经核实的竞品售价，贡献利润/买家售价严格大于10%；仅按现有成本与风险预留生成预算，缺项及身份未核不得自动通过。",
+  "authorization": "已确认利润门槛与口径；本地预算及修复可执行，真实发布和改价另需明确授权。",
+  "forwarder_source": "docs/鑫标服务收费明细26.8.15_转换版.docx",
+  "packing_service_cny": "0.6",
+  "packaging_material_cny": "0",
+  "packaging_selection": "原包装＋免费25×35cm快递袋；预算选择，实际打包须核对；不含额外纸箱/气泡膜",
+  "pricing_strategy": "FOLLOW_MARKET",
+  "margin_basis": "BUYER_PRICE",
+  "fallback_on_missing_reference": false,
+  "fallback_authorization": "2026-10-19本轮确认按竞品售价且售价利润率严格超过10%；竞品未核实期间不自动切换为净回款10%的反推价格。历史预算候选保留。",
+  "margin_policy_status": "CONFIRMED",
+  "confirmed_margin_basis": "BUYER_PRICE",
+  "legacy_minimum_margin_proposal": {
+    "value": "10",
+    "basis": "BUYER_PRICE",
+    "status": "UNCONFIRMED"
+  },
+  "maximum_margin_pct": null,
+  "margin_policy_confirmed_at": "2026-10-19T04:17:11.683413+00:00",
+  "margin_policy_confirmation": "用户本轮明确：对标竞品，然后超过10%就行，按售价。",
+  "minimum_margin_operator": "GT"
+}

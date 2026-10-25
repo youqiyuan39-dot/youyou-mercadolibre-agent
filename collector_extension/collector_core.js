@@ -1,4 +1,4 @@
-async function collectVisible1688Product() {
+globalThis.collectVisible1688Product = globalThis.collectVisible1688Product || async function collectVisible1688Product() {
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
   // Prefer 1688's structured page state. DOM text is only a fallback because
   // supplier names and recommendation cards can look like product data.
@@ -41,21 +41,18 @@ async function collectVisible1688Product() {
       walkSkuImages(skuImageMap);
       let packInfo = ctx.productPackInfo?.fields?.pieceWeightScale;
       if (typeof packInfo === 'string') packInfo = JSON.parse(packInfo);
-      const packRows = packInfo?.pieceWeightScaleInfo || [];
+      const packRows = YouyouPackaging.rows(packInfo);
       const weightBySku = new Map(packRows.filter(row => row?.skuId).map(row => [String(row.skuId), row]));
       const skus = skuRows.map(row => {
         const parts = typeof row.specAttrs === 'string'
           ? row.specAttrs.replace(/&gt;/g, '>').split('>').map(clean).filter(Boolean)
           : [];
-        const pack = weightBySku.get(String(row.skuId || '')) || null;
+        const pack = YouyouPackaging.match(row, packRows, skuRows.length);
         return {
           sku_id: clean(row.skuId), spec_id: clean(row.specId),
           variant: parts.join(' / '), price: Number(row.discountPrice || row.price || 0) || null,
           inventory: Number(row.canBookCount ?? row.amountOnSale ?? 0),
-          package: pack ? {
-            weight_g: Number(pack.weight) || null, length_cm: Number(pack.length) || null,
-            width_cm: Number(pack.width) || null, height_cm: Number(pack.height) || null
-          } : null
+          package: pack
         };
       });
       const orderParam = root.orderParamModel?.orderParam || {};
@@ -168,7 +165,7 @@ async function collectVisible1688Product() {
     const rect = image.getBoundingClientRect();
     const url = imageUrl(image);
     const context = contextOf(image);
-    const label = clean(image.alt || image.title || image.closest('[title]')?.getAttribute('title'));
+    const label = YouyouPackaging.domVariantLabel(image,contextData?.skus||[]) || clean(image.alt || image.title || image.closest('[title]')?.getAttribute('title'));
     const nearText = nearbyTextOf(image);
     return {
       url, order, context, label, nearText,
@@ -188,9 +185,10 @@ async function collectVisible1688Product() {
       naturalWidth: 0, naturalHeight: 0
     };
   });
-  const candidates = [...imageCandidates, ...backgroundCandidates].filter(item => item.url && /alicdn|tbcdn|1688/i.test(item.url) &&
+  const allImageCandidates = [...imageCandidates, ...backgroundCandidates].filter(item => item.url && /alicdn|tbcdn|1688/i.test(item.url) &&
     !blockedImage.test(`${item.url} ${item.context} ${item.label}`) &&
-    Math.max(item.naturalWidth, item.naturalHeight, item.renderedWidth, item.renderedHeight) >= 120);
+    Math.max(item.naturalWidth, item.naturalHeight, item.renderedWidth, item.renderedHeight) >= 24);
+  const candidates=allImageCandidates.filter(item=>Math.max(item.naturalWidth,item.naturalHeight,item.renderedWidth,item.renderedHeight)>=120);
 
   const ownerCounts = new Map();
   candidates.filter(item => item.top < 1800).forEach(item => {
@@ -216,13 +214,8 @@ async function collectVisible1688Product() {
   // skuImageMap often uses specification text as its key and omits skuId.
   // Attach a set only where its visible specification is part of the SKU row;
   // unmatchable sets remain evidence but are never guessed onto another SKU.
-  const mappedSkuImageSets = (contextData?.skus || []).map(sku => {
-    const tokens = clean(sku.variant).split(/\s*\/\s*/).filter(Boolean);
-    const matched = structuredSkuImageSets.filter(set => !set.sku_id &&
-      tokens.some(token => token.length >= 2 && set.variant.includes(token)));
-    const images = uniqueByUrl(matched.flatMap(set => set.images.map(url => ({url}))), 8).map(row => row.url);
-    return images.length ? {sku_id: clean(sku.sku_id), variant: clean(sku.variant).slice(0, 300), images} : null;
-  }).filter(Boolean);
+  const visibleSkuSets=allImageCandidates.filter(item=>belongsToOffer(item)&&skuPattern.test(item.context)&&item.label).map(item=>({variant:item.label,images:[item.url]}));
+  const mappedSkuImageSets = YouyouPackaging.bindImages(contextData?.skus || [], [...structuredSkuImageSets,...visibleSkuSets]);
   const resolvedSkuImageSets = mappedSkuImageSets.length ? mappedSkuImageSets : structuredSkuImageSets;
   const structuredSkuImages = uniqueByUrl(resolvedSkuImageSets.flatMap(item => item.images.map(url => ({
     url, variant: shortVariant(item.variant), sku_id: item.sku_id
@@ -254,41 +247,23 @@ async function collectVisible1688Product() {
   // Some 1688 pages expose their ordinary gallery through skuImageMap as well.
   // A URL already present in the product gallery is not evidence of a SKU image.
   const productUrls = new Set(productImages);
-  skuImages = skuImages.filter(item => !productUrls.has(item.url));
-  const skuImageSets = resolvedSkuImageSets.map(set => ({
-    ...set, images: set.images.filter(url => !productUrls.has(url))
-  })).filter(set => set.images.length);
+  const skuImageSets = resolvedSkuImageSets;
 
-  const packageData = {weight_g:null,length_cm:null,width_cm:null,height_cm:null,evidence:''};
-  for (const table of document.querySelectorAll('table')) {
-    const rows = [...table.querySelectorAll('tr')];
-    if (rows.length < 2) continue;
-    const headers = [...rows[0].querySelectorAll('th,td')].map(cell => clean(cell.textContent));
-    const indexes = {
-      length: headers.findIndex(value => /^长/.test(value)),
-      width: headers.findIndex(value => /^宽/.test(value)),
-      height: headers.findIndex(value => /^高/.test(value)),
-      weight: headers.findIndex(value => /重量|件重|毛重|净重/.test(value))
-    };
-    if (Object.values(indexes).every(index => index < 0)) continue;
-    const cells = [...rows[1].querySelectorAll('th,td')].map(cell => clean(cell.textContent));
-    packageData.length_cm = indexes.length >= 0 ? number(cells[indexes.length]) : null;
-    packageData.width_cm = indexes.width >= 0 ? number(cells[indexes.width]) : null;
-    packageData.height_cm = indexes.height >= 0 ? number(cells[indexes.height]) : null;
-    packageData.weight_g = indexes.weight >= 0 ? number(cells[indexes.weight]) : null;
-    packageData.evidence = 'visible_package_table';
-    break;
+  const sourceSkus = contextData?.skus || [];
+  const tablePackages = YouyouPackaging.domTables(document.querySelectorAll('table'), sourceSkus);
+  for (const sku of sourceSkus) {
+    const fallback=tablePackages.packages.get(String(sku.sku_id));
+    if (fallback) sku.package = Object.fromEntries(Object.entries({...fallback,...(sku.package||{})}).map(([key,value])=>[key,value??fallback[key]??null]));
   }
+  const packageRows=[...(contextData?.packageRows||[]).map(row=>({sku_id:clean(row.skuId||row.sku_id),spec_id:clean(row.specId||row.spec_id),package:YouyouPackaging.pack(row),
+    table_title:'包装信息 / 商品件重尺',source_method:'STRUCTURED_PRODUCT_PACK_INFO',dimension_type:'PACKAGING',weight_type:'PACKED_WEIGHT'})),...tablePackages.records].slice(0,500);
+  const singleOfferPackage=!sourceSkus.length&&contextData?.offerFlags?.isSkuOffer===false?YouyouPackaging.singlePackage(packageRows):null;
+  const packageData = sourceSkus.length===1 && sourceSkus[0].package ? {...sourceSkus[0].package} : singleOfferPackage||{weight_g:null,length_cm:null,width_cm:null,height_cm:null,evidence:''};
 
   const shippingMatch = pageText.match(/(?:运费|快递|邮费)\s*[:：]?\s*[¥￥]\s*(\d+(?:\.\d+)?)/) ||
     pageText.match(/(?:运费|快递|邮费)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
   const freeShipping = !shippingMatch && /(?:运费|快递|邮费)\s*[:：]?\s*(?:包邮|免运费)/.test(pageText);
-  const attributes = {};
-  for (const row of document.querySelectorAll('table tr, [class*="attribute"] li, [class*="property"] li')) {
-    const cells = [...row.querySelectorAll('th,td,span')].map(cell => clean(cell.textContent)).filter(Boolean);
-    if (cells.length >= 2 && cells[0].length <= 80) attributes[cells[0]] = cells.slice(1).join(' ').slice(0, 300);
-    if (Object.keys(attributes).length >= 80) break;
-  }
+  const attributes = YouyouPackaging.attributeRows(document.querySelectorAll('table tr, [class*="attribute"] li, [class*="property"] li'));
 
   return {
     source_url: location.href,
@@ -302,8 +277,16 @@ async function collectVisible1688Product() {
     // sku_images is retained for older servers. sku_image_sets preserves the
     // complete image sequence for each source specification.
     sku_images: skuImages,
+    // Preserve exact observed labels even if the current binding parser fails.
+    // These are public product DOM records, never browser session state.
+    sku_image_evidence: allImageCandidates.filter(item=>belongsToOffer(item)&&skuPattern.test(item.context)&&item.label).map(item=>({url:item.url,variant:item.label})).slice(0,200),
     sku_image_sets: skuImageSets.length ? skuImageSets : skuImages.map(item => ({sku_id:item.sku_id,variant:item.variant,images:[item.url]})),
     skus: contextData?.skus || [],
+    package_rows:packageRows,
+    unassigned_package_rows:tablePackages.unassigned,
+    capture_diagnostics:{collector_version:'0.8.4',sku_count:sourceSkus.length,bound_sku_count:new Set(skuImageSets.filter(s=>s.sku_id).map(s=>s.sku_id)).size,
+      complete_package_count:sourceSkus.filter(s=>['length_cm','width_cm','height_cm'].every(k=>s.package?.[k]>0)).length,
+      packaging_rows_observed:(contextData?.packageRows||[]).length,visible_packaging_rows:tablePackages.records.length,unassigned_package_rows:tablePackages.unassigned.length},
     detail_images: detailImages,
     package: packageData,
     domestic_shipping: {amount: freeShipping ? 0 : number(shippingMatch?.[1]), free: freeShipping, evidence: shippingMatch || freeShipping ? 'visible_shipping_text' : ''},
@@ -319,4 +302,4 @@ async function collectVisible1688Product() {
     extraction_source: contextData ? '1688_structured_page_state' : 'visible_dom_fallback',
     description_url: contextData?.descriptionUrl || ''
   };
-}
+};

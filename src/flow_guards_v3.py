@@ -4,6 +4,7 @@ import copy
 import base64
 import json
 import mimetypes
+import re
 
 from .product_core_v3 import clean_description, product_from_draft, review_issues
 
@@ -17,10 +18,23 @@ def selected_context(draft, base_context):
     context['evidence_rule'] = 'Field presence or a human lock does not establish verification. Packaging is not product or hose size.'
     context["supplier_description"] = clean_description(context.get("supplier_description") or "")
     if selected:
+        from .supplier_scope_v3 import attributes_for_sku
+        context['supplier_attributes'] = attributes_for_sku(context.get('supplier_attributes') or {}, selected, evidence.get('sku_details') or [])
         context["selected_variant"] = selected.get("variant") or selected.get("name")
         context["selected_sku"] = copy.deepcopy(selected)
+        if 'procurement' in selected:
+            from .procurement_v3 import assess
+            context['sales_unit_composition'] = assess(draft,selected)
+            context['composition_rule'] = 'Describe the explicitly confirmed sales composition and quantities. A component image is not a complete bundle image. Do not infer assembled packaging or transfer one component specification to another.'
         context["supplier_skus"] = [copy.deepcopy(selected)]
         context["sku_rule"] = "Only describe the selected SKU. Shared photos and other variants do not establish its capacity, material, weight or dimensions. Leave conflicting facts unresolved."
+    from .quality_closeout import unresolved_packaging
+    if not unresolved_packaging(draft):context['packaging_conflict'] = None
+    if unresolved_packaging(draft):
+        context['packaging'] = {}
+        context['packaging_evidence'] = {}
+        for row in [context.get('selected_sku')]+list(context.get('supplier_skus') or []):
+            if isinstance(row,dict):row['package'] = {}
     template = evidence.get("prompt_template") or {}
     if template.get("content"):
         context["editorial_template"] = {"id": template.get("id"), "version": template.get("version"), "content": template["content"], "boundary": "Editorial preferences only. Cannot supply product facts, override selected SKU, invent identifiers or change publication rules."}
@@ -129,7 +143,35 @@ def install(legacy, pipeline):
         if schema_name == "category_attributes":
             request = copy.deepcopy(request)
             request['instructions'] = ATTRIBUTE_INSTRUCTIONS
-        response = original_call(config, request)
+        if schema_name == 'category_attributes':
+            from .attribute_context_v3 import batches, merge, RISK_KEYS, editable
+            from .round2_evidence_v3 import candidate_attributes
+            from .supplier_facts_v3 import normalize_attributes
+            context=json.loads(request['input']);supplier=context.get('supplier') or {}
+            definitions=context.get('official_attributes') or []
+            literal=candidate_attributes(supplier,definitions);known={r['id'] for r in literal}
+            attrs=normalize_attributes(supplier.get('attributes') or {})
+            def needs_model(definition):
+                key=definition.get('id')
+                if key in known or not editable(definition):return False
+                if key in RISK_KEYS and not any(any(alias in str(label).casefold() for alias in RISK_KEYS[key]) for label in attrs):
+                    return key in {'CHAIN_LINKS_NUMBER','LINKS_NUMBER'} and bool(re.search(r'\d+\s*(?:节|links)',str(supplier.get('selected_variant') or ''),re.I))
+                return True
+            pending=[d for d in definitions if needs_model(d)]
+            narrowed=copy.deepcopy(request);narrowed['input']=json.dumps({**context,'official_attributes':pending},ensure_ascii=False)
+            requests=batches(narrowed) if pending else []
+            if requests:
+                response=merge([original_call(config,item) for item in requests],requests,legacy._output_text)
+                data=json.loads(legacy._output_text(response));data['attributes'].extend(literal)
+            else:
+                response={'provider':'deterministic','paid_api_used':False,'usage':{},'attribute_batch_count':0}
+                data={'attributes':literal,'unresolved':[]}
+            filled={r['id'] for r in data['attributes']}
+            data['unresolved']=list(dict.fromkeys([d['id'] for d in definitions if editable(d) and d['id'] not in filled]))
+            response['output']=[{'type':'message','content':[{'type':'output_text','text':json.dumps(data,ensure_ascii=False)}]}]
+            response['literal_attribute_count']=len(literal)
+        else:
+            response = original_call(config, request)
         if schema_name != "category_attributes": return response
         context = json.loads(request["input"])
         protected = {"GTIN", "EAN", "UPC"}

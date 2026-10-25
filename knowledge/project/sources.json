@@ -1,0 +1,61 @@
+{
+  "checked_at": "2026-10-16",
+  "migration_mode": "自写适配代码、提炼文档及方法；未整仓复制第三方代码或文档",
+  "runtime": {
+    "fastembed": "0.8.0",
+    "onnxruntime": "1.31.0",
+    "model": "BAAI/bge-small-zh-v1.5",
+    "provider": "CPUExecutionProvider",
+    "threads": 2
+  },
+  "model_files": [
+    {
+      "file": "tools/rag_models/models--Qdrant--bge-small-zh-v1.5/snapshots/46fbe35fd4374a00fee7de77dfddaeb6dd6a2c59/model_optimized.onnx",
+      "bytes": 94781076,
+      "sha256": "1294ea4b6331115a353d81f96b85e8c8d7fdcc284453d5b2fab5b016230aad38"
+    }
+  ],
+  "sources": [
+    {
+      "url": "https://github.com/qdrant/fastembed",
+      "use": "本机ONNX嵌入",
+      "license": "Apache-2.0"
+    },
+    {
+      "url": "https://huggingface.co/BAAI/bge-small-zh-v1.5",
+      "use": "中文嵌入模型；本机使用Qdrant分发ONNX版",
+      "license": "MIT"
+    },
+    {
+      "url": "https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/",
+      "use": "参考混合检索及RRF方法；未安装整个LlamaIndex框架"
+    },
+    {
+      "url": "https://github.com/agentscope-ai/agentscope",
+      "use": "现有工具循环继续使用；未升级框架",
+      "license": "Apache-2.0"
+    },
+    {
+      "url": "https://github.com/anthropics/skills",
+      "use": "提炼技能说明组织方法；未复制技能源文件",
+      "license": "混合许可证，逐文件规则不能视为全仓统一开源"
+    },
+    {
+      "url": "https://github.com/modelcontextprotocol/python-sdk",
+      "use": "工具/资源/协议概念校正；未将现有工具强行改为MCP",
+      "license": "MIT"
+    },
+    {
+      "url": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+      "use": "上下文与缓存能力边界核对；未更换引擎"
+    },
+    {
+      "url": "https://global-selling.mercadolibre.com/devsite/en_us/user-products-with-a-size-chart/question-13",
+      "use": "Remote净回款与买家售价语义"
+    },
+    {
+      "url": "https://global-selling.mercadolibre.com/devsite/atributtes-global-selling",
+      "use": "官方属性隐藏/只读标签解释"
+    }
+  ]
+}

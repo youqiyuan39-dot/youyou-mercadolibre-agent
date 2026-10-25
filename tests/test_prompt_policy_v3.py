@@ -45,14 +45,25 @@ class PromptTests(unittest.TestCase):
             ai_listing_pipeline.sanitized_product_context = lambda d: {}
             install(fake, ai_listing_pipeline)
             request = ai_listing_pipeline.build_responses_request(draft(), 'test')
-            self.assertEqual(request['instructions'], LISTING_INSTRUCTIONS)
-            fake.call_responses_api({}, {'text': {'format': {'name': 'category_attributes'}}, 'input': '{"existing_attributes":[]}'})
-            self.assertEqual(requests[0]['instructions'], ATTRIBUTE_INSTRUCTIONS)
+            self.assertTrue(request['instructions'].startswith(LISTING_INSTRUCTIONS));self.assertIn('Confirmed product details:',request['instructions'])
+            result = fake.call_responses_api({}, {'text': {'format': {'name': 'category_attributes', 'schema': {'properties': {'attributes': {'items': {'properties': {'id': {'type':'string'}}}}, 'unresolved': {'items': {'type':'string'}}}}}}, 'input': json.dumps({'existing_attributes': [], 'official_attributes': [{'id':'CUSTOM_FINISH','name':'Finish','value_type':'string'}]})})
+            self.assertEqual(len(requests),1)
+            # Batching appends the model-candidate provenance rule to the full policy.
+            self.assertTrue(requests[0]['instructions'].startswith(ATTRIBUTE_INSTRUCTIONS))
+            self.assertIn('not a manufacturer-confirmed model',requests[0]['instructions'])
+            self.assertEqual(json.loads(requests[0]['input'])['official_attributes'][0]['id'],'CUSTOM_FINISH')
+            output=json.loads(fake._output_text(result))
+            self.assertEqual(output['attributes'],[]);self.assertEqual(output['unresolved'],['CUSTOM_FINISH'])
+            requests.clear()
+            # No official fields means deterministic completion, not a model call.
+            empty=fake.call_responses_api({}, {'text':{'format':{'name':'category_attributes'}},'input':'{"existing_attributes":[]}'})
+            self.assertEqual(requests,[]);self.assertFalse(empty['paid_api_used'])
+            self.assertEqual(json.loads(fake._output_text(empty)),{'attributes':[],'unresolved':[]})
 
     def test_packaging_status_and_conflicts_reach_copy_request(self):
         d = draft(); d['evidence']['packaging_conflict'] = {'status': 'UNRESOLVED'}
         context = selected_context(d, {})
-        self.assertEqual(context['packaging_evidence']['weight']['status'], 'USER_INPUT_UNVERIFIED')
+        self.assertEqual(context['packaging_evidence'], {})  # Disputed numbers never enter generation facts.
         self.assertEqual(context['packaging_conflict']['status'], 'UNRESOLVED')
 
     def test_prompt_version_and_category_change_invalidate_checkpoint(self):

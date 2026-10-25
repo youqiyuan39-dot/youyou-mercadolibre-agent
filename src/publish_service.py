@@ -15,8 +15,10 @@ from typing import Any
 
 try:
     from .mercadolibre_client import MercadoLibreAPIError, MercadoLibreCategoryClient, MercadoLibreClient, write_json
+    from .listing_brand_v3 import issues as brand_issues
 except ImportError:
     from mercadolibre_client import MercadoLibreAPIError, MercadoLibreCategoryClient, MercadoLibreClient, write_json
+    from listing_brand_v3 import issues as brand_issues
 
 
 class PublishError(ValueError):
@@ -81,6 +83,11 @@ def validate_category_sites(draft: dict[str, Any], client: Any | None = None) ->
     semantic_issue = _semantic_category_issue(str(payload.get("title") or payload.get("family_name") or ""), source_domain)
     if semantic_issue:
         result["issues"].append(semantic_issue)
+    try:from .category_resolution_v3 import semantic_issues
+    except ImportError:from src.category_resolution_v3 import semantic_issues
+    result['issues'].extend(semantic_issues(draft,source))
+    review=(draft.get('evidence') or {}).get('classification_review') or {}
+    if review.get('status')=='NEEDS_REVIEW':result['issues'].append('类目尚未通过用途与完整路径核验：'+str(review.get('reason') or '请核对候选类目'))
     suffix = category_id[3:]
     verified_site_categories = (draft.get("evidence") or {}).get("site_category_checks") or {}
     for site_id in sites:
@@ -92,13 +99,26 @@ def validate_category_sites(draft: dict[str, Any], client: Any | None = None) ->
             row["mapping_source"] = str(check.get("source") or "manual_official_category_check")
             result["warnings"].append(f"{site_id} 使用经官方核验的同域类目作发布前检查；实际目标类目和可售状态以平台发布结果为准")
         try:
-            target = api.category(target_id)
+            from src.site_category_v3 import discover, same_path
+            try:
+                target = api.category(target_id)
+                if source.get('path_from_root') and not same_path(source, target):
+                    raise ValueError('目标类目完整用途路径不一致')
+            except Exception:
+                if verified_id:
+                    raise
+                target = discover(api, source, site_id, str(payload.get('title') or source.get('name') or ''))
+                target_id = target['id']
+                row.update(category_id=target_id, mapping_source='LIVE_LEAF_DOMAIN_FULL_PATH')
+                result['warnings'].append(f'{site_id} 已核验同域及完整路径；实际映射仍以发布后回查为准')
+            row['path_from_root'] = target.get('path_from_root') or []
             target_settings = target.get("settings") or {}
             target_domain = _domain_key(target_settings.get("catalog_domain") or target.get("domain_id"))
             row.update({"category_name": target.get("name"), "domain": target_domain,
                         "enabled": target_settings.get("status") in (None, "enabled"),
                         "listing_allowed": target_settings.get("listing_allowed") is not False})
-            row["compatible"] = bool(row["enabled"] and row["listing_allowed"] and target_domain == source_domain)
+            row["compatible"] = bool(row["enabled"] and row["listing_allowed"] and source_domain
+                                     and target_domain == source_domain and not target.get('children_categories'))
             if not row["compatible"]:
                 result["issues"].append(f"{site_id} 的官方类目映射不存在、已停用或商品域不一致")
         except Exception as exc:
@@ -215,6 +235,8 @@ def _site_rows(draft: dict[str, Any], sku: dict[str, Any], only_sites: set[str] 
 
 
 def validate_publish_skus(draft: dict[str, Any]) -> list[dict[str, Any]]:
+    if brand_issues(draft):
+        raise PublishError('；'.join(brand_issues(draft)))
     payload = draft.get("payload") or {}
     all_skus = _sku_rows(draft)
     variation_keys = []
@@ -261,6 +283,8 @@ def _package_attributes(sku: dict[str, Any]) -> list[dict[str, Any]]:
 
 def build_user_product_payload(draft: dict[str, Any], picture_ids: list[str] | dict[str, list[str]],
                                only_sites: dict[str, set[str]] | None = None) -> list[dict[str, Any]]:
+    if brand_issues(draft):
+        raise PublishError('；'.join(brand_issues(draft)))
     payload = draft.get("payload") or {}
     common = [value for row in payload.get("attributes") or [] if isinstance(row, dict) and (value := _attribute(row))]
     results: list[dict[str, Any]] = []
@@ -268,7 +292,9 @@ def build_user_product_payload(draft: dict[str, Any], picture_ids: list[str] | d
         sku_id = str(sku.get("sku_id") or f"sku-{index}")
         seller_sku = str(sku.get("seller_sku") or payload.get("seller_sku") or "").strip()
         sites = _site_rows(draft, sku, (only_sites or {}).get(seller_sku or sku_id))
-        by_key = {str(row.get("id") or row.get("name")): dict(row) for row in common}
+        content = sku.get('ai_content') or {}
+        specific = [value for raw in content.get('attributes') or [] if isinstance(raw, dict) and (value := _attribute(raw))]
+        by_key = {str(row.get("id") or row.get("name")): dict(row) for row in (specific if 'attributes' in content else common)}
         by_key["ITEM_CONDITION"] = {"id": "ITEM_CONDITION", "values": [{"id": str(payload.get("item_condition_value_id") or "2230284"), "name": "New"}]}
         if seller_sku:
             by_key["SELLER_SKU"] = {"id": "SELLER_SKU", "value_name": seller_sku}
@@ -283,10 +309,10 @@ def build_user_product_payload(draft: dict[str, Any], picture_ids: list[str] | d
         item: dict[str, Any] = {
             "sites_to_sell": sites,
             "family_name": str(payload.get("family_name") or payload.get("title") or "").strip(),
-            "category_id": str(payload.get("category_id") or "").strip(),
+            "category_id": str(content.get("category_id") or payload.get("category_id") or "").strip(),
             "currency_id": str(payload.get("currency_id") or "USD"),
             "available_quantity": int(sku.get("available_quantity") or payload.get("available_quantity") or 0),
-            "description": {"plain_text": str(payload.get("description") or "").strip()},
+            "description": {"plain_text": str(content.get("description") or payload.get("description") or "").strip()},
             "pictures": [{"id": value} for value in ids],
             "attributes": list(by_key.values()),
         }
@@ -336,8 +362,9 @@ def _image_bytes(item: dict[str, Any], root: Path) -> tuple[bytes, str, str]:
         raise PublishError("上架图片地址不正确")
     request = urllib.request.Request(remote_url, headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read(10_000_001), Path(urllib.parse.urlparse(remote_url).path).name or "image.jpg", str(response.headers.get_content_type() or "image/jpeg")
+        from .public_read_v3 import read
+        data, mime = read(remote_url, {"User-Agent": "Mozilla/5.0", "Accept": "image/*"})
+        return data, Path(urllib.parse.urlparse(remote_url).path).name or "image.jpg", mime
     except (urllib.error.URLError, OSError) as exc:
         raise PublishError("无法下载一张上架图片") from exc
 
@@ -352,6 +379,13 @@ def _error_text(error: Any) -> str:
     return detail or str(error.get("message") or error.get("error") or "发布失败")
 
 
+def _definite_rejection(result):
+    return (isinstance(result, dict) and type(result.get('status')) is int
+            and result['status'] in {400,401,403,404,422,429} and bool(result.get('error'))
+            and not result.get('siteless_user_product_id') and not result.get('siteless_family_id')
+            and not any(s.get('item_id') for s in result.get('site_items') or [] if isinstance(s,dict)))
+
+
 def _attempt_variants(request_payload: list[dict[str, Any]], response: Any) -> list[dict[str, Any]]:
     responses = response if isinstance(response, list) else [response]
     rows: list[dict[str, Any]] = []
@@ -361,7 +395,8 @@ def _attempt_variants(request_payload: list[dict[str, Any]], response: Any) -> l
         sites = []
         for requested in item.get("sites_to_sell") or []:
             site_id, actual = str(requested.get("site_id") or "").upper(), returned.get(str(requested.get("site_id") or "").upper(), {})
-            if actual.get("error"): state, error = "failed", _error_text(actual.get("error"))
+            if _definite_rejection(result): state, error = "failed", _error_text(result)
+            elif actual.get("error"): state, error = "failed", _error_text(actual.get("error"))
             elif actual.get("item_id"): state, error = "success", None
             else: state, error = "pending_confirmation", None
             sites.append({"site_id": site_id, "status": state, "item_id": actual.get("item_id"), "error": error})
@@ -402,19 +437,38 @@ def _merge_variants(previous: list[dict[str, Any]], latest: list[dict[str, Any]]
     return merged
 
 
-def _upload_pictures(draft: dict[str, Any], root: Path, api: MercadoLibreClient, cache: dict[str, str]) -> dict[str, list[str]]:
+def _validate_picture_dimensions(uploaded: dict[str, Any]) -> None:
+    # max_size is the platform's processed original, not a thumbnail or canvas size.
+    size = str(uploaded.get("max_size") or "")
+    match = re.fullmatch(r"([1-9]\d*)x([1-9]\d*)", size)
+    if not match:
+        raise PublishError("平台未返回可核验的图片有效尺寸，已停止创建刊登")
+    if max(int(match[1]), int(match[2])) < 500:
+        raise PublishError(f"平台处理后的图片有效尺寸 {size}，至少一边须达到 500 像素，已停止创建刊登")
+
+
+def _upload_pictures(draft: dict[str, Any], root: Path, api: MercadoLibreClient, cache: dict[str, Any]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
+    # Keep the historical hash -> ID format; old string-only entries lack size proof.
+    metadata = cache.setdefault("__picture_dimensions_v1", {})
+    if not isinstance(metadata, dict):
+        raise PublishError("图片尺寸缓存格式异常，已停止创建刊登")
     for index, sku in enumerate(_sku_rows(draft), 1):
         sku_id, ids = str(sku.get("sku_id") or f"sku-{index}"), []
         for image in _gallery_for_sku(draft, sku_id):
             data, filename, content_type = _image_bytes(image, root)
             if len(data) > 10_000_000: raise PublishError("上架图片超过美客多 10 MB 限制")
-            fingerprint, picture_id = hashlib.sha256(data).hexdigest(), cache.get(hashlib.sha256(data).hexdigest())
-            if not picture_id:
+            fingerprint = hashlib.sha256(data).hexdigest()
+            picture_id = cache.get(fingerprint)
+            proof = metadata.get(fingerprint)
+            if not (isinstance(proof, dict) and picture_id and proof.get("id") == picture_id):
                 uploaded = api.upload_picture(data, filename, content_type)
                 picture_id = str(uploaded.get("id") or "")
                 if not picture_id: raise MercadoLibreAPIError("图片上传成功但未返回图片 ID")
                 cache[fingerprint] = picture_id
+                proof = {"id": picture_id, "max_size": uploaded.get("max_size")}
+                metadata[fingerprint] = proof
+            _validate_picture_dimensions(proof)
             ids.append(picture_id)
         result[sku_id] = ids
     return result

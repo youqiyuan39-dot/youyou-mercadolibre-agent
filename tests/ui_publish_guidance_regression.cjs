@@ -1,0 +1,14 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const code=fs.readFileSync('web/publish.js','utf8'),ctx={document:{querySelector:()=>({}),addEventListener(){}},URL};vm.createContext(ctx);
+vm.runInContext(code.slice(0,code.indexOf('api("/api/v3/publish/stores")')),ctx);
+const guidance=issues=>JSON.parse(JSON.stringify(ctx.rowGuidance({publish_issues:issues})));
+assert.equal(guidance(['站点 MLM 缺少价格或净收益']).links.some(x=>x.hash==='#sites'),false,'A price issue must not falsely mean no site was selected');
+assert(guidance(['SKU X: SKU 上架图片为空']).links.some(x=>x.hash==='#sourceImages'));
+assert(guidance(['缺少打包尺寸']).links.some(x=>x.hash==='#physical'));
+assert.equal(ctx.rowGuidance({publish_status:'pending_confirmation'}).links.length,0);
+assert.equal(ctx.rowGuidance({publish_status:'success'}).tone,'success');
+const data={state:'BUDGET_ESTIMATE',rows:[{sku_id:'s'}],warnings:['same warning','same warning'],requires_budget_review:true};
+assert(!ctx.pricingReview(data).includes('class="pricing-review" open'));
+assert(ctx.pricingReview(data,true).includes('class="pricing-review" open'));
+assert.equal((ctx.pricingReview(data).match(/same warning/g)||[]).length,1);
+console.log('Publication guidance, field destinations, pending-result safety and preserved expanded budget confirmation passed.');

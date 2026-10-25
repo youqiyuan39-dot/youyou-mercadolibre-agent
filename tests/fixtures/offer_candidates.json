@@ -1,0 +1,27 @@
+{
+  "fixture_kind": "SYNTHETIC_OFFLINE_NOT_REAL_SEARCH",
+  "market_reference": {"market_item_id": "MLM1234567", "site_id": "MLM", "title": "filter VF3500 black pack of 2", "units_per_pack": 2, "spec_match": "HUMAN_CONFIRMED_SAME_SKU"},
+  "target_identity": {"specs": {"model": "VF3500", "color": "black"}, "units_per_pack": 2, "package": {"weight_g": 550, "length_cm": 14, "width_cm": 13, "height_cm": 12}},
+  "candidates": [
+    {
+      "case": "positive_missing_image",
+      "capture": {"source": "1688", "source_url": "https://detail.1688.com/offer/900000001.html", "title": "filter VF3500 black pack of 2", "skus": [{"sku_id": "S1", "spec_id": "SP1", "variant": "VF3500 black 2 pcs", "price": 18, "package": {"weight_g": 550, "length_cm": 14, "width_cm": 13, "height_cm": 12}}]},
+      "sku_identity": {"S1": {"specs": {"model": "VF3500", "color": "black"}, "units_per_pack": 2}}
+    },
+    {
+      "case": "negative_unrelated_title",
+      "capture": {"source": "1688", "source_url": "https://detail.1688.com/offer/900000002.html", "title": "garden hose sprinkler", "skus": [{"sku_id": "S2", "spec_id": "SP2", "variant": "2 pcs", "package": {"weight_g": 550, "length_cm": 14, "width_cm": 13, "height_cm": 12}}]},
+      "sku_identity": {"S2": {"specs": {"model": "VF3500", "color": "black"}, "units_per_pack": 2}}
+    },
+    {
+      "case": "conflict_model_quantity",
+      "capture": {"source": "1688", "source_url": "https://detail.1688.com/offer/900000003.html", "title": "filter VF5000 black pack of 1", "skus": [{"sku_id": "S3", "spec_id": "SP3", "variant": "VF5000 black 单个装", "package": {"weight_g": 550, "length_cm": 14, "width_cm": 13, "height_cm": 12}}]},
+      "sku_identity": {"S3": {"specs": {"model": "VF5000", "color": "black"}, "units_per_pack": 1}}
+    },
+    {
+      "case": "conflict_package",
+      "capture": {"source": "1688", "source_url": "https://detail.1688.com/offer/900000004.html", "title": "filter VF3500 black pack of 2", "skus": [{"sku_id": "S4", "spec_id": "SP4", "variant": "VF3500 black 2 pcs", "package": {"weight_g": 900, "length_cm": 24, "width_cm": 13, "height_cm": 12}}]},
+      "sku_identity": {"S4": {"specs": {"model": "VF3500", "color": "black"}, "units_per_pack": 2}}
+    }
+  ]
+}

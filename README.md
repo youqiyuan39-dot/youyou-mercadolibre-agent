@@ -1,38 +1,46 @@
-# Youyou Mercado Libre Agent
+# 悠悠 Mercado Libre Agent
 
-本地运行的 Mercado Libre 商品采集、AI 辅助编辑、审核与发布工作台。支持把同一份源码放到不同的 **Windows 10/11** 电脑运行；Python、Chrome 和授权需要在每台电脑分别配置。项目不会自动把私人商品或密钥上传到 GitHub。
+Windows 本地商品采集、SKU证据整理、AI辅助编辑、定价、审核与发布工作台。此仓库更新自2026-10-23验收源码，并补充2026-10-25跨电脑恢复支持。
 
-## 新电脑安装与启动
+**当前可恢复程序与私有业务文件；无人值守发布全链路仍未验收完成。** 缺失商品事实、同规格证据或有效费用时保持阻塞，不把测试通过写成业务成功。历史图片有效尺寸和逐SKU发布错误解析修复已包含在源码中。
 
-1. 安装 Python 3.11+ 和 Google Chrome。项目代码只用 Python 标准库。下载或克隆**完整项目文件夹**，文件夹可以放在任意用户目录。
-2. 双击 `启动工作台.cmd`，在浏览器打开 `http://127.0.0.1:8789`。这是经典工作台，包含现有采集、编辑、审核和发布请求预览链路。
-3. 若要使用新版总览、图片建品、店铺运营和模板界面，双击 `启动新版工作台.cmd`，打开 `http://127.0.0.1:8790`。新版可以独立接收采集，也能与经典版同时使用同一个项目目录。**新版正式发布入口目前保持关闭**；需要发布时回经典工作台完成预览、审核和确认。
-4. Chrome 打开 `chrome://extensions`，开启开发者模式，加载项目内 `collector_extension` 文件夹。扩展公钥固定 ID，换电脑或移动文件夹后仍与本机服务匹配。采集浮窗和扩展弹窗自动连接 8790 或 8789，无需手填旧连接码。旧版同名扩展应停用，避免重复浮窗。
-5. 需要与你截图相同的桌面图标时，在项目根目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-desktop-shortcut.ps1`。脚本按新电脑实际项目路径生成快捷方式，使用仓库内原图标；已有同名快捷方式时停止，不覆盖。
-6. 在“AI 全局设置”输入自己的模型服务地址、模型名和 API Key；在“店铺管理”输入自己的 Mercado Libre 开发者应用配置并重新授权。密钥和 OAuth 令牌使用当前 Windows 用户的 DPAPI 加密，**不能从另一台电脑复制解密**。未配置密钥时仍可本地采集与编辑；真实 AI 调用和发布需要各自的有效配置。
+## 新电脑快速开始
 
-`127.0.0.1` 总是指运行工作台的这台电脑。两个端口被其他服务占用时，先关闭旧进程；启动窗口应保持打开。不要同时在两台电脑上运行同一 OAuth 隧道。
+1. 安装 **Python 3.12 x64**、Chrome，克隆或下载完整项目。不要只下载EXE或单个页面。
+2. 在项目目录运行：
 
-## 私有数据迁移
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools/setup.ps1 -Assistant -Rag -Desktop
+   ```
 
-公开仓库只含代码和必要的通用图标／嵌入页面资源，不含草稿、图片、发布记录、店铺数据或密钥。迁移到另一台 Windows 电脑时：
+   安装会创建项目主环境 `.venv`、助手环境 `tools/assistant_env` 和检索环境 `tools/rag_env`，不会启动业务任务。可用 `-Python` 指定3.12路径；离线安装追加 `-Wheelhouse "D:\迁移包\wheelhouse"`。
+3. 按 **[完整恢复指南](docs/RESTORE.md)** 导入私有业务包和模型运行包；没有旧数据也可空库运行。模型权重约6.6GB，不存放在Git中，指南提供固定版本来源、SHA256和下载脚本。
+4. 双击 `启动新版工作台.cmd`，浏览器打开 `http://127.0.0.1:8790`。新版管理采集接收端8789。桌面窗口按指南构建并重建快捷方式，需要 WebView2。
+5. Chrome 扩展管理加载 `collector_extension`，随后在工作台重新配置模型服务、店铺和OAuth授权。Windows DPAPI凭据不能跨电脑直接解密，不随仓库/迁移包发送。
 
-1. 先关闭旧电脑工作台。在旧电脑项目根目录执行：
-   `python tools/portable_data.py export ..\youyou-data.zip`
-2. 通过自己控制的私密方式把 ZIP 传到新电脑，**不要提交到 GitHub**。这个 ZIP 未加密，内含商品与业务数据。
-3. 在新电脑的全新项目目录执行：
-   `python tools/portable_data.py import ..\youyou-data.zip`
-   导入前会检查路径和目标文件；已有同名文件时停止，不覆盖。包含草稿、原图、AI 输出、审核和发布记录、店铺缓存与非密钥模型配置。旧 `data/workflow_board.json` 是可重建缓存，不迁移。
-4. 新电脑重新保存 API Key、OAuth Client Secret 并重新授权店铺。检查图片、草稿、发布记录和 SKU × 站点价格，再进行任何付费模型调用或真实发布。
+## 程序与数据
 
-`.secrets/`、令牌、隧道凭据和日志不会进入迁移包。原电脑文件不被导出工具修改。源文件若包含旧电脑的绝对路径，应通过编辑器重新选择本机文件；项目自身的源码和静态资源均通过项目相对路径加载。
+| 内容 | 位置/恢复方式 |
+| --- | --- |
+| 后台、页面、扩展、桌面源码 | `src`、`web`、`collector_extension`、`selection_collector`、`desktop` |
+| 知识与规则 | `knowledge/project`、公开配置与 `config/*.example.*` |
+| 安装与验证 | `tools/setup.ps1`、依赖锁文件、`tests`（需Node.js 22+） |
+| 私有商品、图片、审核、发布历史 | `tools/portable_data.py export/import`，私密传输 |
+| 本地模型、推理引擎与检索权重 | `tools/restore_runtime.py` 导入，或按恢复指南重新取得 |
+| 凭据、浏览器状态、账户配置 | 不导出；新设备重新授权 |
 
-## OAuth 回调与隧道
+公开仓库不包含真实草稿、私有图片、账号记录、密钥、浏览器缓存、模型大文件或本机虚拟环境。迁移导入有SHA256校验、拒绝覆盖、路径重定位及自动任务暂停标记。重新授权前不能直接续跑旧发布计划。
 
-Mercado Libre Redirect URI 必须与开发者应用后台登记的 HTTPS 地址完全一致。若使用自己的 Cloudflare Tunnel，将 `config/cloudflared-mercadolibre.example.yml` 复制为 `config/cloudflared-mercadolibre.yml`，填写自己的 UUID 和 hostname；将该隧道凭据安装到当前 Windows 用户的 `%USERPROFILE%\.cloudflared\<UUID>.json`，安装 `cloudflared` 后执行 `tools/start-mercadolibre-tunnel.ps1`。脚本根据当前用户目录生成运行配置，不写死开发者电脑路径。新域名还需同步更新开发者后台及工作台 Redirect URI。工作台本身不需要隧道即可启动。
+## 本地验证
 
-## 验证与开发
+本次独立恢复的范围和结果见 [恢复验收记录](docs/RESTORE_VALIDATION_20261025.md)。
 
-在项目根目录运行 `python -m unittest discover -s tests -v`。代码与页面分别在 `src/`、`web/`，采集扩展在 `collector_extension/`。正式发布、付费模型和真实 OAuth 回调需要自己的账号与凭据；自动测试使用本地模拟，不代表这些外部调用已在新电脑通过。
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-项目使用 MIT 许可证；第三方来源见 `THIRD_PARTY_NOTICES.md`。
+5个依赖历史私有采集原件的回放用例在无私有材料时显式跳过。其余用例使用隔离数据及模拟平台；外部账号、模型硬件性能、真实供应商页面和发布必须在目标电脑分别验收。
+
+正式发布已在新版界面提供，必须通过具体店铺/SKU/图片/费用/授权检查。发布未知结果先回查，禁止盲目重发；品牌规则为Generic，利润要求为贡献利润÷买家售价严格大于10%。预算缺项不按0处理，不用竞品尺寸自动替代本品事实。
+
+许可证与第三方来源见 [LICENSE](LICENSE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

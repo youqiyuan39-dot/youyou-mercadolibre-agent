@@ -1,0 +1,310 @@
+{
+  "version": "PROJECT_KNOWLEDGE_20261019_MODEL_CANDIDATES",
+  "documents": [
+    {
+      "id": "workflow",
+      "title": "采集到发布的当前工作流",
+      "keywords": "教程 使用 自动化 采集 流程",
+      "content": "采集后自动恢复当前SKU资料、筛原图、生成逐SKU文案属性，再做利润定价。商品尺寸、未知可选属性不阻塞不依赖它的步骤；当前类目必填包装等仅暂停依赖步骤。阶段完成、进入发布中心不等于产物可发布。保存有效内容及人工修改，补料后只重跑受影响步骤；付费生图、利润核对和发布仍保留人工确认。库存默认200。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "本线程用户确认，2026-10-16",
+        "src/auto_processing_v3.py",
+        "src/sku_processing_v3.py"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-17"
+    },
+    {
+      "id": "pricing",
+      "title": "铺货跟价及10%利润底线",
+      "keywords": "利润 定价 净收益价 10% 跟价 竞品",
+      "content": "主策略为智赢墨西哥自发货同SKU同套装跟价，贡献利润除以买家售价必须严格超过10%，精确10%不通过。竞品未核实或缺少售价时不自动切换为净回款10%的反推定价；旧成本预算只是历史候选。采购、国内运费、包装条件及预留缺失不假设0。只有通过同规格、完整成本和严格利润校验的SKU才可写本机预算；发布与线上改价另行确认。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "本线程用户最新跟价策略，2026-10-16",
+        "config/autopricing_policy.json",
+        "src/market_follow_v3.py",
+        "https://global-selling.mercadolibre.com/devsite/en_us/user-products-with-a-size-chart/question-13"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-19"
+    },
+    {
+      "id": "profit",
+      "title": "利润公式与费用不重复扣除",
+      "keywords": "成本 运费 利润率 净回款 分母 预留",
+      "content": "Remote净回款是平台扣除其费用后的参考到账金额，不能再重复扣同一平台佣金和平台承担的国际运费。仍需扣本SKU卖家实际承担的采购、国内运费、包材、货代及经营预留。当前预算广告5%、另付税费5%按净回款，退货3%按基础CNY成本；这些是预算假设，不是实际业务数据。货代单SKU基础操作费0.6元；任一边超过45cm才比较实重与长×宽×高÷12000的体积重；计费重超5kg每超1kg加1元。包材预算为原包装加免费25×35cm袋，不含额外纸箱气泡膜。实际账单优先。净回款利润率与售价利润率分母不同，铺货10%当前使用买家售价分母。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "config/autopricing_policy.json",
+        "src/autopricing_v3.py",
+        "本地货代报价表已读取条款，2026-10-16"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "multi_sku",
+      "title": "多SKU资料隔离与断点恢复",
+      "keywords": "sku 多sku 多规格 站点 属性 文案 恢复",
+      "content": "站点身份可以从商品已选目标继承给每个SKU；采购价、包装尺寸、图片和竞品对应关系按SKU分别保存，不能拿第一款填全部。公共和SKU图库可引用同一图片，去重不能抹掉SKU绑定。图组匹配用skuId/specId或唯一完整规格值，共有尺寸不能决定花色图。长资料分段、官方可编辑属性分批生成，每SKU完成单独落盘；修改输入后失效相关检查点，保留人工锁定值。全部任务阶段结束不等于资料齐全：显示完成数量、失败及真实缺项，不能用成功状态掩盖待补。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/sku_processing_v3.py",
+        "src/source_intake.py",
+        "src/attribute_context_v3.py",
+        "collector_extension/packaging.js"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "capture",
+      "title": "1688采集与包装事实边界",
+      "keywords": "采集 尺寸 包装 重量 1688 缺失",
+      "content": "采到30×180cm和100g不等于采到包装三边与毛重。商品规格尺寸、包装长宽高、重量类型分别记录。表头只写重量时保留观察值，不声称是含包装重。保存明确SKU标签和图片URL映射；禁止按顺序、共有尺寸或颜色猜配。包装详情常在末尾，本轮修复了只看前6张的遗漏。实时页面访问失败只能写本次未取得，不证明供应商没提供。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/package_recovery_v3.py",
+        "src/source_intake.py",
+        "collector_extension/packaging.js"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-17"
+    },
+    {
+      "id": "images",
+      "title": "商品图方法论与至少三张",
+      "keywords": "图片 主图 生图 原图 图库 模板",
+      "content": "图片质量与SKU归属分别验收。初筛失败、下载失败的图不得因位置前三张而自动勾选；初筛通过但未绑定SKU仍是候选。显式SKU ID、独有款式标签及原图URL用于恢复映射，不按图片顺序猜配。保留人工选择；上架图库回读与来源图勾选必须对应，冻结后本地文件与远程URL指向同图也要识别为同一个选择。至少3张不同可用图，不能复制凑数。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "本线程用户商品图方法论与至少3张要求",
+        "src/prompt_policy_v3.py",
+        "src/source_image_screening_v3.py"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-17"
+    },
+    {
+      "id": "attributes",
+      "title": "类目属性与证据支持",
+      "keywords": "品牌 材质 型号 属性 包装 hidden read_only",
+      "content": "按当前官方类目判断必填与可选；可选字段未知不阻塞。所有刊登品牌严格Generic，来源USER_BRAND_POLICY，不被供应商品牌或旧general默认覆盖；原始品牌仅保留作源资料。型号优先明确型号；缺失时允许把可追溯的供应商货号/所选规格整理为候选，保留出处、规则和理由，不等同厂家型号确认。无依据或冲突留空；包装数值和知识库案例不得当作型号事实。材质、尺寸和同款身份仍需对应来源。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "https://global-selling.mercadolibre.com/devsite/atributtes-global-selling",
+        "src/attribute_context_v3.py",
+        "src/publish_service.py",
+        "本线程用户最新确认，2026-10-19",
+        "knowledge/project/model_field_rules.json"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-19"
+    },
+    {
+      "id": "failure",
+      "title": "故障诊断与Harness执行边界",
+      "keywords": "失败 报错 任务 重试 harness 执行 状态",
+      "content": "先取当前商品和最新任务日志，区分采集缺项、图片未绑定、模型输出无效、定价无参考及平台拒绝。优先确定性校验，再调用本地模型。桌面打包环境与开发Python不同，必须验证正式后台，不能仅凭单测通过宣称解决。中断队列最多自动恢复一次，用户暂停保持暂停；重复采集不重复付费、不重复刊登。助手读实时工具诊断，修改先准备可核对差异；生图和利润人工确认。关窗应关闭工作台及自启动采集器，模型服务独立管理。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/auto_processing_v3.py",
+        "desktop/backend_lifecycle.py",
+        "src/workbench_assistant_worker.py"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "rag",
+      "title": "本地知识检索与上下文",
+      "keywords": "rag 知识库 检索 上下文 模型 性能",
+      "content": "RAG不改变下载的模型权重：先从项目知识库检索相关片段，再放进本次上下文。当前实现用本机BM25、业务同义词及CPU中文BGE嵌入，通过RRF融合，无云端嵌入费用；仅索引明确筛选的项目规则，不扫描聊天、凭据、浏览器存储。返回来源、更新时间和版本；旧政策与当前指令冲突时以当前指令优先。工具日志提供当前商品状态，通用知识不能充当商品证据。知识上下文最多5000字符，只取相关片段；长SKU事实另行分段。实际模型槽容量优先于写死8K，容量核验失败保守回退，不把显存占满视为优化成功。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/project_knowledge_v3.py",
+        "src/assistant_inference_v3.py",
+        "https://doc.agentscope.io/tutorial/task_rag.html",
+        "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "selection",
+      "title": "铺货选品知识与同款核验",
+      "keywords": "选品 铺货 销量 同款 商机 竞争",
+      "content": "选品咨询可以回答，但自动选品模块已撤下。当前从墨西哥自发货榜单选参考，巴西只作参考。累计销量不是准确近30天销量；不足30天且累计区间落在1–50的商品只作有条件线索。标题相似不能证明同款，要核对用途、结构、规格、件数和履约；货源成本与包装决定跟价后能否守住10%预算利润底线。没有证据不承诺爆款，不把榜单净收益直接当利润。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "本线程已确认的选品与跟价要求"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "agent_roles",
+      "title": "Qwen、工作流与项目Agent的分工",
+      "keywords": "agent 智能体 qwen 模型 普通程序 工作流 harness",
+      "content": "Qwen负责理解文字图片、生成结构化建议和选择已开放工具。工作台程序负责文件访问、真实工具执行、数据保存、费用计算和权限。固定采集到发布链路是工作流；助手依据当前任务和工具返回动态选择诊断动作是Agent能力。普通程序也能按反馈分支，不是只有Agent才会调整。项目使用AgentScope工具循环，不因引入多Agent就自动提高质量；先解决SKU绑定、资料和校验。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/workbench_assistant_worker.py",
+        "https://www.anthropic.com/engineering/building-effective-agents"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "context",
+      "title": "Token与本地上下文工程",
+      "keywords": "token context 上下文 容量 缓存 分段 速度",
+      "content": "Token是模型分词器处理文本的单位，不等于一个汉字或一个单词；分词规则来自tokenizer。上下文是本次实际送入模型的指令、历史、商品资料和工具返回，窗口是可容纳的token上限，输入与预留输出共同占预算。32K容量不能代替有效检索；先检索相关规则，再带当前SKU事实，按用途分段。保留来源和冲突信息，避免摘要丢失关键编号。知识问答非思考、诊断保留受限思考，缓存只有相同前缀才可能受益。速度看完整任务和正确率，不看显存占满。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "本线程Agent基础知识校正",
+        "src/assistant_inference_v3.py",
+        "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "mcp_skill",
+      "title": "Tool、MCP和Skill如何服务悠悠",
+      "keywords": "mcp skill tool 工具 函数 接口 技能",
+      "content": "Tool是可执行能力，例如读取SKU或计算利润；模型输出工具名和参数，程序校验并执行，结果回给模型。MCP是连接工具与数据的标准协议，不是模型本身，也不会自动授予权限。Skill是按任务组织的说明与资源，可含脚本，不保证一定可执行。悠悠目前使用注册Python工具，可本地部署，并非每个工具必须改成MCP。成熟Skill适合提炼触发条件、输入输出、步骤和失败停止条件，内容仍需适配本地工具。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "本线程基础知识与项目代码",
+        "https://github.com/modelcontextprotocol/python-sdk",
+        "https://github.com/anthropics/skills"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "schema_tools",
+      "title": "工具输入输出及证据校验",
+      "keywords": "工具 参数 schema 结构化 校验 system prompt 幻觉",
+      "content": "System prompt规定角色和约束，但不能保证模型永远正确。商品材质、品牌、尺寸无依据时，不能仅靠再加一句提示词解决；要有程序校验、来源记录、冲突阻断和缺项分支。工具参数使用明确类型与SKU标识，返回成功/失败/未取得及时间；JSON格式正确不等于业务事实正确。RAG检索也会召回错资料，助手和程序都不能假设模型必然识别并阻止所有错误。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "本线程概念题纠正",
+        "src/attribute_context_v3.py",
+        "src/product_core_v3.py"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "publishing",
+      "title": "墨西哥Remote发布与回读",
+      "keywords": "发布 上架 net_proceeds 403 回查 部分成功",
+      "content": "正式提交必须绑定店铺、草稿版本、SKU和站点。Remote采用净回款计价，price和net_proceeds不能混用；第三方参考不是平台实际核价。校对页只是本地预览，HTTP受理和待确认也不代表成功。部分成功只重试失败站点，结果不明先回查避免重复创建。当前项目只能在用户明确核对后提交，助手自身没有代确认工具。接口403说明本次未取得，不能补造竞品价格或销量。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/target_publish_v3.py",
+        "https://global-selling.mercadolibre.com/devsite/en_us/validations-cbt/global-listing"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "operations",
+      "title": "店铺运营与实时问题边界",
+      "keywords": "店铺 订单 消息 账单 运营 指标 实时 教程",
+      "content": "工作台有运营总览、经营指标、账单、订单、消息、待处理、活动和折扣栏目。助手读取已查询的本机快照，未查询、403、404或无真实订单样本分别说明，不能都写成0。已保存登录授权不等于刚验证平台连接。诊断当前问题先看目标店铺与快照时间；历史记录仅作线索。发送消息、活动或折扣正式提交不能因登录而自动授权。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/workbench_assistant.py",
+        "src/workbench_v3.py"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "evidence",
+      "title": "证据优先级与未知值处理",
+      "keywords": "证据 冲突 未知 来源 默认 人工锁定",
+      "content": "用户当前明确确认优先，其次当前页面/文件和可靠来源，再次已确认历史。历史AI结果、生成图、检索摘要和字段已填写不能证明真实商品属性。人工锁定表示不要覆盖，不一定代表已测量。每条事实应有SKU、单位、来源与时间；unknown/null/0/占位标签不能当有效值。无法取得时保存缺项并说明下一步所需事实，不重复猜测。",
+      "authority": "USER_POLICY",
+      "sources": [
+        "用户AGENTS.md及本线程确认"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "eval",
+      "title": "项目优化如何验收",
+      "keywords": "评测 正确率 耗时 测试 性能 优化 回归",
+      "content": "先固定样本和旧基线，再一次只改变一个因素。RAG检查是否召回目标证据、误召回、失效政策过滤、上下文大小与检索耗时；Qwen检查答案是否符合证据和实际任务是否完成。单位测试只是有限证据，还需正式桌面后台和真实工具循环。供应商缺资料造成的阻塞不能算模型性能差，也不能把编造填充算成功。记录付费次数和未完成项，没有收益就保留简单版本。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "本线程完整任务耗时与正确率要求",
+        "docs/flow-repair-20261016"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "github_retrieval",
+      "title": "采用GitHub方案的范围与版本",
+      "keywords": "github fastembed bm25 rrf 混合检索 开源",
+      "content": "FastEmbed提供基于ONNX的本地嵌入，可用CPU；LlamaIndex展示关键词与向量检索通过RRF合并排名的方法。悠悠采用轻量中文嵌入和本地关键词检索并比较实测，不为这些方法整体迁移框架。仅引入与项目问题相关的资料，记录来源日期、包版本、模型哈希及许可证。第三方文档是参考，不是当前商品事实；下载不等于部署，部署不等于效果提升。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "https://github.com/qdrant/fastembed",
+        "https://developers.llamaindex.ai/python/framework/integrations/retrievers/reciprocal_rerank_fusion/"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-16"
+    },
+    {
+      "id": "supplier_completion",
+      "title": "包装与SKU图片缺项的具体处理办法",
+      "keywords": "门帘 门幅 铰链 必填 品牌 型号 包装尺寸 图片绑定 款式 原图 漏采",
+      "content": "先查不可变原始采集、明确SKU行、全部保留的详情图与标签。数据存在但未解析时调用恢复工具；公开图无SKU标签且绑定记录丢失时不能按顺序猜，需重采明确关联。商品规格两边要显示已采到，包装三边另列；重量类型未知时要求确认类型，不重复索要同一数值。可选字段未知继续处理，必填缺料仅暂停依赖步骤。实时页面受限写本次未取得，不能写供应商没提供。无新证据不反复调用模型。",
+      "authority": "PROJECT_CONTRACT",
+      "sources": [
+        "src/supplier_facts_v3.py",
+        "src/package_recovery_v3.py",
+        "src/supplier_completion_v3.py",
+        "https://global-selling.mercadolibre.com/devsite/en_us/validations-cbt/global-listing",
+        "https://api.mercadolibre.com/categories/CBT457468/attributes"
+      ],
+      "status": "ACTIVE",
+      "updated_at": "2026-10-17"
+    },
+    {
+      "id": "dependency_strategy",
+      "title": "铺货自动化：按依赖推进与公开字段显示边界",
+      "keywords": "新策略 铺货 包装 商品尺寸 重量 不显示 必填 可选 勾选 初筛",
+      "content": "第三方工具显示—不证明后台未填；MLM6292677590公开描述有130mm和260g，工具仍显示—。这不能证明其包装字段是否填写，本次完整属性接口403。官方hidden属性可能不公开；required字段是否必填按当前类目核验。当前挂饰类目包装四项为必填。流程先完成有依据的可用部分，缺料仅暂停依赖步骤；不通过取消校验或伪造数值提高完成率。",
+      "authority": "USER_POLICY",
+      "status": "ACTIVE",
+      "updated_at": "2026-10-17",
+      "sources": [
+        "docs/铺货自动化新策略_2026-10-17.md",
+        "https://global-selling.mercadolibre.com/devsite/category-dump-global-selling/atributtes-global-selling"
+      ]
+    },
+    {
+      "id": "model_field_candidates",
+      "title": "型号MODEL填充规则与候选出处",
+      "keywords": "MODEL 型号 货号 规格 型号候选 推导理由 知识库 AI填充",
+      "authority": "USER_POLICY",
+      "status": "ACTIVE",
+      "updated_at": "2026-10-19",
+      "sources": [
+        "本线程用户授权实施，2026-10-19",
+        "knowledge/project/model_field_rules.json",
+        "src/model_resolution_v3.py"
+      ],
+      "content": "三层型号策略：一、供应商明确型号原文直接提取。二、缺型号时，将供应商货号或所选SKU的有效规格原样整理为刊登型号候选，记录源路径、原文、规则版本、理由及requires_final_review；候选不是厂家型号确认。三、没有依据、字段冲突、多型号混列、仅有颜色/数量/包装重尺时留空。正例：货号与规格均为11齿链锯，可填11齿链锯候选；明确型号VF3500优先于其他货号。反例：1个、黑色、113g、包装10×2×2cm、ABC/DEF不能自动当型号。所有案例仅解释规则，不能迁移到别的SKU；具体MODEL必须重新核对当前SKU来源。品牌Generic只按独立刊登政策处理，不自动当型号。机器规则与正反例在model_field_rules.json，由相同解析器测试。"
+    }
+  ]
+}

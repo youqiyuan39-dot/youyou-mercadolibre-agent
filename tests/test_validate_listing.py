@@ -22,11 +22,11 @@ class ValidateListingTests(unittest.TestCase):
 
         self.assertIn("缺少打包重量", errors)
         self.assertIn("缺少打包尺寸", errors)
-        self.assertIn("缺少真实条码或平台无条码依据", errors)
+        self.assertFalse(any("条码" in issue for issue in errors))
         self.assertIn("缺少型号兼容证据，不能让 AI 自行补写", warnings)
         self.assertIn("图片尚未人工核对", warnings)
 
-    def test_no_gtin_candidate_does_not_block_until_final_approval(self):
+    def test_no_gtin_marker_is_quiet_even_after_approval(self):
         product = {
             "evidence": {
                 "supplier_url": "https://example.invalid/item",
@@ -41,10 +41,10 @@ class ValidateListingTests(unittest.TestCase):
         }
         errors, warnings = validate(product)
         self.assertNotIn("缺少真实条码或平台无条码依据", errors)
-        self.assertIn("已按无条码商品处理，正式发布前需通过官方类目校验", warnings)
+        self.assertFalse(any("条码" in issue for issue in warnings))
         product["human_approved"] = True
         errors, _ = validate(product)
-        self.assertIn("无条码原因尚未通过官方类目校验", errors)
+        self.assertFalse(any("条码" in issue for issue in errors))
 
 
 if __name__ == "__main__":

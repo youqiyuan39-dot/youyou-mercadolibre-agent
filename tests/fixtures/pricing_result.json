@@ -1,0 +1,15 @@
+{
+  "fixture_only": true,
+  "note": "Synthetic captured result contract; no real AI pricing request or verified provider mapping.",
+  "schema": "PRICING_RESULT_V1",
+  "provider": "zying_ai",
+  "site_id": "MLM",
+  "sku_id": "MLM12345678",
+  "currency": "USD",
+  "margin_basis": "BUYER_PRICE",
+  "profit_basis": "UNIT_CONTRIBUTION_AFTER_RESERVES",
+  "basis_verified": true,
+  "buyer_price": "100",
+  "unit_contribution": "11",
+  "input_sha256": "BOUND_BY_TEST_TO_SYNTHETIC_INPUTS"
+}

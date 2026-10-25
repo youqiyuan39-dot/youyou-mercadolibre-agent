@@ -98,7 +98,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             drafts = root / "drafts"
             drafts.mkdir()
             draft = sample_draft()
-            draft["evidence"]["gtin_or_exemption"] = ""
+            draft["evidence"]["packed_weight"] = None
             (drafts / "blocked-draft.json").write_text(json.dumps(draft), encoding="utf-8")
             board = build_board(drafts, root)
         self.assertEqual(board["counts"]["BLOCKED_EVIDENCE"], 1)

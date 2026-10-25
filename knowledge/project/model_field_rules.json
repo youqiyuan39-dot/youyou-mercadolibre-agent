@@ -1,0 +1,21 @@
+{
+  "version": "MODEL_FIELD_RULES_20261019_V1",
+  "authority": "USER_POLICY",
+  "active": true,
+  "priority": ["EXPLICIT_MODEL", "SUPPLIER_ITEM_IDENTIFIER", "SELECTED_SPEC"],
+  "identifier_labels": ["货号", "产品货号", "商品货号", "产品编号", "商品编号"],
+  "spec_labels": ["规格", "型号规格"],
+  "maximum_length": 80,
+  "boundary": "货号或规格可以整理为刊登型号候选，须保留出处与理由；不是厂家型号确认。无依据、冲突、多型号混合不填；知识库案例不能变成其他商品的事实。",
+  "examples": [
+    {"id": "explicit", "input": {"型号": "VF3500"}, "expected": "VF3500", "status": "EXPLICIT"},
+    {"id": "supplier_identifier", "input": {"货号": "11齿链锯", "规格": "11齿链锯"}, "expected": "11齿链锯", "status": "CANDIDATE"},
+    {"id": "identifier_conflict", "input": {"货号": "ABC-1", "产品货号": "ABC-2"}, "expected": null, "status": "CONFLICT"},
+    {"id": "model_priority", "input": {"型号": "X100", "货号": "SKU-200"}, "expected": "X100", "status": "EXPLICIT"},
+    {"id": "package_only", "input": {"包装尺寸": "10x2x2cm", "包装重量": "113g"}, "expected": null, "status": "UNRESOLVED"},
+    {"id": "quantity_only", "input": {"规格": "1个"}, "expected": null, "status": "UNRESOLVED"},
+    {"id": "color_only", "input": {"规格": "黑色"}, "expected": null, "status": "UNRESOLVED"},
+    {"id": "mixed_models", "input": {"型号": "ABC-1/ABC-2"}, "expected": null, "status": "CONFLICT"},
+    {"id": "unknown", "input": {"型号": "未知", "品牌": "Generic"}, "expected": null, "status": "UNRESOLVED"}
+  ]
+}

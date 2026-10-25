@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "target": {"store_id": "", "site_id": "MLM", "logistic_type": "remote"},
+  "authorization": {"reference": "", "publish": false}
+}

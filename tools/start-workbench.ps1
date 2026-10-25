@@ -8,18 +8,19 @@ $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 Set-Location -LiteralPath $projectRoot
 
 $candidates = @(
+    @{ Command = (Join-Path $projectRoot '.venv\Scripts\python.exe'); Prefix = @() },
     @{ Command = 'py'; Prefix = @('-3') },
     @{ Command = 'python'; Prefix = @() }
 )
 $selected = $null
 foreach ($candidate in $candidates) {
     if (-not (Get-Command $candidate.Command -ErrorAction SilentlyContinue)) { continue }
-    $versionCheck = @($candidate.Prefix) + @('-c', 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)')
+    $versionCheck = @($candidate.Prefix) + @('-c', 'import sys; import PIL; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)')
     & $candidate.Command @versionCheck 2>$null
     if ($LASTEXITCODE -eq 0) { $selected = $candidate; break }
 }
 if (-not $selected) {
-    Write-Host 'Python 3.11 or newer is required. Install from https://www.python.org/downloads/windows/' -ForegroundColor Red
+    Write-Host 'Python 3.12 and project dependencies are required. Run tools/setup.ps1 first.' -ForegroundColor Red
     exit 1
 }
 

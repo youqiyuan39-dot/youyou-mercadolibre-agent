@@ -38,7 +38,7 @@ COPY_SCHEMA: dict[str, Any] = {
     "properties": {
         "family_name": {"type": "string", "maxLength": 60},
         "title": {"type": "string", "maxLength": 60},
-        "description": {"type": "string", "maxLength": 2000},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
         "site_titles": {
             "type": "array",
             "items": {
@@ -115,6 +115,16 @@ package weight and dimensions under "Package information:" when present; (4) a p
 check for model, dimensions, connectors or included parts. Packaging facts are not product dimensions.
 Do not copy 1688 price disclaimers, supplier identity or wholesale language. Do not pad the description
 with generic claims. Record the evidence basis and language strategy in methodology.
+Omit the entire Package information section when package facts are unknown. Never say that a
+fact is absent, unavailable or unspecified in customer copy. Put those gaps in unresolved_questions.
+Translate actual words in each site title, not just the language label. Preserve the exact product
+identity across languages. An adjustable wrench is not a screwdriver. Before returning JSON,
+check each site's actual title language and product type.
+最终检查（必须执行）：
+1. 主标题和描述用英文；MLM 等西语站点标题必须实际写西班牙语，MLB 写巴西葡语。
+2. 缺少包装重量或尺寸时，直接省略整个 Package information 段。顾客描述中不要提“没提供、未确认、没说明”。这些只进 unresolved_questions。
+3. 活动扳手的术语是 adjustable wrench / llave ajustable / chave inglesa 或 chave ajustável；chave de fenda 是螺丝刀，不能混用。
+4. 不要根据商品类型补造材质、性能、品牌、兼容范围；描述只组织已知事实和购买前的核对建议。
 Return only the requested JSON for human review."""
 
 
@@ -227,15 +237,60 @@ def sanitized_product_context(draft: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def compact_copy_context(context):
+    """Keep product evidence/provenance, omit pricing and merchant telemetry from copy writing."""
+    import copy
+    c = copy.deepcopy(context)
+    def sku(row):
+        return {k: v for k, v in row.items() if k not in (
+            'autopricing_by_site', 'site_pricing', 'target_net_proceeds_usd',
+            'purchase_cost_cny', 'purchase_cost_source', 'inventory_source', 'available_quantity', 'supplier_facts', 'user_attribute_policy')}
+    c['supplier_skus'] = [sku(r) for r in c.get('supplier_skus') or [] if isinstance(r, dict)]
+    if isinstance(c.get('selected_sku'), dict): c['selected_sku'] = sku(c['selected_sku'])
+    attrs = c.get('supplier_attributes') or {}
+    if isinstance(attrs, dict):
+        c['supplier_attributes'] = {k:v for k,v in attrs.items() if not any(t in str(k) for t in (
+            '下游平台', '销售地区', '专供货源', '商家代发', '代发数量', '代发商家榜', '揽收率', '留货率', '品质达标', '铺货分销', '加工定制', '产地'))}
+        c['supplier_attributes'] = {k:v for k,v in c['supplier_attributes'].items() if str(k) not in ('生产企业',) and not (str(k) in ('品牌','brand') and re.search(r'[\u3400-\u9fff]',str(v)))}
+    c['copy_scope'] = 'Product facts only. Omitted pricing and merchant telemetry are not product claims.'
+    return c
+
+
+def material_evidence_present(context):
+    if context.get('material_listed'): return True
+    def explicit(attrs):
+        if isinstance(attrs, dict):
+            return any(re.search(r'材质|材料|material', str(k), re.I) and str(v).strip().lower() not in ('', 'none', 'unknown', '未知', '未确认') for k,v in attrs.items())
+        if isinstance(attrs, list):
+            return any(isinstance(r,dict) and re.search(r'材质|材料|material', str(r.get('name') or r.get('id') or ''),re.I) and r.get('value') for r in attrs)
+        return False
+    return explicit(context.get('supplier_attributes'))
+
+
 def build_responses_request(draft: dict[str, Any], model: str) -> dict[str, Any]:
-    context = sanitized_product_context(draft)
+    context = compact_copy_context(sanitized_product_context(draft))
     content: list[dict[str, Any]] = [{"type": "input_text", "text": json.dumps(context, ensure_ascii=False)}]
     for url in _input_images(draft):
         content.append({"type": "input_image", "image_url": url, "detail": "high"})
+    restrictions = []
+    if not material_evidence_present(context): restrictions.append('Material has no textual evidence: do not claim plastic, metal, steel, aluminium, or any other material, including in key_facts. Ask about material in unresolved_questions.')
+    if not context.get('compatibility_evidence'): restrictions.append('No verified compatibility evidence: omit engine displacement and model compatibility from ALL customer fields, including titles; the supplier title is only a lead.')
+    content.append({'type':'input_text','text':
+        'Final writing checklist (application instruction, not supplier data): family_name, title, description and key_facts must be English. Only site_titles for MLM are Spanish. '
+        'Start description with the literal heading Confirmed product details:, then an English introduction and factual bullet points. '
+        'Keep missing facts solely in unresolved_questions. Do not put evidence commentary or missing-information disclaimers in the description. '
+        + ' '.join(restrictions)})
     return {
         "model": model,
         "store": False,
-        "instructions": LISTING_INSTRUCTIONS,
+        "instructions": LISTING_INSTRUCTIONS + (
+            "\nOutput contract checked by the application: description must be nonempty, at most 2000 characters "
+            "and contain the exact heading 'Confirmed product details:'. "
+            "Start description with the exact heading Confirmed product details:, then write a useful English introduction and evidence-supported details. "
+            "Use only verified facts for the explicitly selected SKU; do not invent or repeat claims "
+            "to reach a length target. There is no minimum character count. Missing facts belong in unresolved_questions. "
+            "Return localized titles for target_sites only, and include methodology."
+        ),
         "input": [{"role": "user", "content": content}],
         "text": {
             "format": {
@@ -251,8 +306,27 @@ def build_responses_request(draft: dict[str, Any], model: str) -> dict[str, Any]
 FORBIDDEN_CUSTOMER_PHRASES = (
     "the source says", "the source mentions", "source information", "supplier information",
     "la información de origen", "el título de origen", "informação de origem", "não foi confirmado",
-    "no se confirmó", "not confirmed",
+    "no se confirmó", "not confirmed", "source data", "available evidence",
+    "not provided", "not specified", "not available",
+    "unavailable", "supplier packaging", "no material specifications",
 )
+
+
+def normalize_copy_sections(proposal):
+    """Canonicalize presentation only; never create, repeat or infer product facts."""
+    import copy
+    result=copy.deepcopy(proposal)
+    description=str(result.get('description') or '')
+    if len(description.strip())<250:return result
+    if 'confirmed product details:' in description.lower():return result
+    heading=r'(?im)^\s*(?:\#{1,3}\s*)?(?:\*\*)?(?:confirmed\s+)?(?:product\s+(?:details|specifications)|key\s+(?:facts|details|features)|technical\s+details|specifications)\s*:?\s*(?:\*\*)?\s*$'
+    if re.search(heading,description):
+        result['description']=re.sub(heading,'Confirmed product details:',description,count=1)
+    else:
+        bullets=list(re.finditer(r'(?m)^\s*(?:[-*•]\s+|\d+[.)]\s+)\S',description))
+        if len(bullets)>=2:
+            at=bullets[0].start();result['description']=description[:at].rstrip()+'\n\nConfirmed product details:\n'+description[at:].lstrip()
+    return result
 
 
 def proposal_quality_issues(proposal: dict[str, Any], draft: dict[str, Any]) -> list[str]:
@@ -265,13 +339,60 @@ def proposal_quality_issues(proposal: dict[str, Any], draft: dict[str, Any]) -> 
         issues.append("英文主标题为空或超过 60 字符")
     if re.search(r"[\u4e00-\u9fff]", title):
         issues.append("英文主标题仍包含中文")
-    if len(description) < 250:
-        issues.append("商品描述少于 250 字符，信息过于单薄")
+    if not description.replace('Confirmed product details:','').strip():
+        issues.append("商品描述缺少可核对的商品事实；不能用空描述或营销套话代替")
+    if re.search(r"[\u3400-\u9fff]", description):
+        issues.append("英文商品描述仍包含中文，请翻译为英文，不能截断遗漏事实")
     if "confirmed product details:" not in description.lower():
         issues.append("商品描述缺少已确认商品明细")
     if any(phrase in combined for phrase in FORBIDDEN_CUSTOMER_PHRASES):
         issues.append("顾客文案包含内部证据或未确认话术")
-    expected_sites = set(_site_ids(draft))
+    context = sanitized_product_context(draft)
+    customer = '\n'.join([title, str(proposal.get('family_name') or ''), description] + [str(x) for x in proposal.get('key_facts') or []] + [str(x.get('title') or '') for x in proposal.get('site_titles') or [] if isinstance(x,dict)])
+    from .supplier_facts_v3 import wrong_type
+    if wrong_type(context.get('supplier_title'), customer):
+        issues.append('节日门帘被误写成门铰链，商品类型错误')
+    if re.search(r'\b(?:and|with|for|of|de|con|para)\s*$',title,re.I):issues.append('标题以连接词结尾，必须写成完整的商品名称')
+    source_title=str(context.get('supplier_title') or '')
+    variant=str(context.get('selected_variant') or '')
+    if re.search(r'油泡|油管',source_title) and re.search(r'件套|pc',variant,re.I) and re.search(r'float bowl|(?:fuel|oil) cup|float components|complete assembly',customer,re.I):
+        issues.append('选中规格是园林机械维修配件套装；没有浮子杯总成依据，请使用中性的Replacement Parts Kit，不推断套内具体构成')
+    if '手拉器' in source_title and re.search(r'ignition process',customer,re.I):issues.append('手拉启动器是机械起动机构，不要误写为点火过程或电气点火部件')
+    if re.search(r'grommets?|ribbon loops?',customer,re.I) and not re.search(r'鸡眼|气眼|金属扣|环扣|grommet|ribbon loop',source_title+' '+str(context.get('supplier_attributes') or ''),re.I):issues.append('打孔或丝带不能推断为金属鸡眼或丝带环，删除未提供的结构细节')
+    if '导板头' in variant and re.search(r'\b(?:bushing|buffer spring)\b',customer,re.I):issues.append('所选规格明确为导板头，请使用Chainsaw Guide Bar Tip；没有衬套或缓冲弹簧总成的SKU依据')
+    if re.search(r'\d+(?:/\d+)?-\d+-\d+-\d+',variant):
+        prose=re.sub(r'(?im)^.*packed (?:weight|dimensions).*$','',customer)
+        if re.search(r'\b(?:pitch|gauge|length|height|width|diameter)\b',prose,re.I):issues.append('连字符规格串是不可拆解的SKU标识，不证明节距、槽宽或商品长宽高；删除这些解释，只保留中性商品类型及包装明细')
+    if re.search(r'according to (?:the )?supplier|supplier (?:listing|attributes|evidence)|confirmed by the user|based on supplier',customer,re.I):issues.append('顾客文案包含供应商证据或人工确认过程，改成直接的商品事实，内部依据留在审计记录')
+    if re.search(r'\b(?:attached|fixed|sewn) ribbons?\b',customer,re.I) and not re.search(r'固定丝带|缝制丝带|已安装丝带|attached ribbon',str(context.get('supplier_attributes') or ''),re.I):issues.append('丝带存在不能证明已固定在商品上，删除attached/fixed/sewn结构推断')
+    if re.search(r'\boutdoor\b',customer,re.I) and not re.search(r'户外|室外|outdoor',source_title+' '+str(context.get('supplier_attributes') or ''),re.I):issues.append('来源未声明户外适用，删除户外使用断言')
+    if '链条' in source_title and re.search(r'(?:bar and chain|chain)\s+(?:measure|measures|is)\s+\d+[- ]?inch',customer,re.I):issues.append('油锯6寸等规格是适配导板的标称尺寸，不能推断链条展开实测长度；保留规格标签和链节数，不写测量结论')
+    if '链条' in source_title and re.search(r'bar with \d+ (?:drive )?links',customer,re.I):issues.append('链节数属于链条，不属于导板；写成bar and a chain with the stated link count')
+    if '链条' in source_title and re.search(r'(?:guide )?bar (?:link count|has \d+ (?:drive )?links)',customer,re.I):issues.append('导板没有链节数；删除guide bar link count句子，链节数只能描述chain')
+    if re.search(r'对联|门帘|横幅',source_title) and re.search(r'\bcouple\b|\bpair of (?:decorative |hanging )?banners',customer,re.I) and not re.search(r'一对|两张|2张|两条|2条|对装',variant+' '+str(context.get('supplier_attributes') or '')):issues.append('对联是商品类型词，不能据此确定此SKU包装内恰有两张；删除pair/couple数量推断，仅描述decorative hanging banners')
+    if not material_evidence_present(context) and re.search(r'\b(?:plastic|steel|aluminum|aluminium|polymer|metal|nylon|silicone|rubber|stainless|plástico|acero|aluminio)\b|塑料|钢|铝|尼龙|橡胶', customer, re.I):
+        issues.append('顾客文案断言了没有文字依据的材质')
+    strokes = set(re.findall(r'(\d+)\s*冲程',str(context.get('supplier_title') or '')))
+    stated_strokes = set(re.findall(r'(\d+)\s*[- ]?\s*(?:stroke|tiempos|[Tt]\b)',customer,re.I))
+    if strokes and stated_strokes - strokes: issues.append('文案发动机冲程数字与供应商文字不一致')
+    if re.search(r'\b(?:chars? max|characters? max|json only|60 characters|site_titles)\b',customer,re.I): issues.append('顾客文案泄漏了输出指令')
+    if '手拉器' in str(context.get('supplier_title') or '') and not context.get('compatibility_evidence') and re.search(r'\b(?:scooters?|motorcycles?|ATVs?|off-road vehicles?|motocicletas?)\b',customer,re.I):
+        issues.append('启动器车辆适配范围缺少核验依据')
+    if '手拉器' in str(context.get('supplier_title') or '') and re.search(r'ignition switch|ignition component|ignition part|starter (?:pull )?cord', customer,re.I):
+        issues.append('手拉启动器总成被误写成点火开关或独立拉绳')
+    if '手拉器' in str(context.get('supplier_title') or '') and re.search(r'full assembly required for installation|all (?:necessary|installation) parts|ready to install', customer,re.I):
+        issues.append('文案断言包含全部安装部件但未提供依据')
+    if re.search(r'\b(?:reliable starting|reliable performance|starting power|ease of use|durable|robust|improved performance|easy to use)\b',customer,re.I):
+        issues.append('顾客文案包含未提供验证依据的性能或便利性宣传')
+    if not context.get('compatibility_evidence') and re.search(r'\b\d+\s*(?:cc|cm3|cm³)\b', customer,re.I):
+        issues.append('顾客文案使用了未核验的排量兼容性')
+    if re.search(r'\b(?:arrancador|llave|para|tiempos|repuesto|herramienta)\b',title,re.I):
+        issues.append('英文主标题包含西班牙语商品词')
+    if len(re.findall(r'\b(?:para|este|está|producto|con|del|los|las|por|una|su|como|incluye|se|el|de)\b', title+' '+description,re.I)) >= 8:
+        issues.append('英文主标题或描述明显使用了西班牙语')
+    if re.search(r'no se han|no se considera|no se proporciona|not independently verified|not verified|based on (?:the )?(?:listing|supplier) title|not explicitly', description,re.I):
+        issues.append('顾客描述包含内部证据或缺失信息话术')
+    expected_sites = set(_site_ids(draft.get("payload") or {}))
     returned: dict[str, dict[str, Any]] = {}
     for row in proposal.get("site_titles") or []:
         if isinstance(row, dict) and row.get("site_id"):
@@ -284,6 +405,14 @@ def proposal_quality_issues(proposal: dict[str, Any], draft: dict[str, Any]) -> 
         expected_language = "pt-BR" if site == "MLB" else "es"
         if len(local_title) > 60 or not local_title:
             issues.append(f"{site} 站点标题为空或超过 60 字符")
+        if re.search(r"[一-鿿]", local_title):
+            issues.append(f"{site} 站点标题仍包含中文")
+        if local_title.casefold() == title.casefold() and re.search(r"\b(?:wrench|adjustable|blue|carburetor|replacement|inch|inches|kit)\b", title, re.I):
+            issues.append(f"{site} 站点标题照搬英文，需实际翻译标题")
+        source_context = sanitized_product_context(draft)
+        identity = str(source_context.get("supplier_title") or source_context.get("current_title") or "")
+        if site == "MLB" and "活动扳手" in identity and "fenda" in local_title.casefold():
+            issues.append("MLB 将活动扳手误译成螺丝刀；请用 chave inglesa 或 chave ajustável")
         if row.get("language") != expected_language:
             issues.append(f"{site} 站点标题语言不正确")
     methodology = proposal.get("methodology")
@@ -353,40 +482,28 @@ def _response_timeout_seconds(config: dict[str, Any]) -> int:
 
 
 def call_responses_api(config: dict[str, Any], request_body: dict[str, Any]) -> dict[str, Any]:
-    env_name = str(config["api_key_env"])
-    api_key = str(config.get("_api_key") or os.environ.get(env_name) or "").strip()
-    if not api_key:
-        raise AIListingError(f"环境变量 {env_name} 未设置，本次没有调用模型。")
-    url = str(config["base_url"]).rstrip("/") + "/responses"
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
-        },
-        method="POST",
-    )
+    # All non-image model calls use the shared local runtime, including old CLI configs.
     try:
-        with urllib.request.urlopen(request, timeout=_response_timeout_seconds(config)) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise AIListingError(f"AI 接口返回 HTTP {exc.code}：{detail}") from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        if isinstance(exc, TimeoutError) or "timed out" in str(exc).lower():
-            raise AIListingError(f"AI 接口读取超时（已等待 {_response_timeout_seconds(config)} 秒）。") from exc
-        raise AIListingError("无法连接 AI 接口。") from exc
+        from .local_model_runtime import responses, LocalModelError
+    except ImportError:
+        from local_model_runtime import responses, LocalModelError
+    try:
+        return responses(ROOT, request_body, _response_timeout_seconds(config))
+    except LocalModelError as exc:
+        raise AIListingError(str(exc)) from exc
 
 
 def generate_quality_checked_proposal(
     config: dict[str, Any], draft: dict[str, Any], model: str
 ) -> tuple[dict[str, Any], dict[str, Any], int]:
     """Generate once, repair once if needed, and never return copy that failed the gate."""
+    from .local_model_runtime import profile
+    if profile(ROOT).get('copy_mode') == 'scoped_english':
+        from .scoped_listing_copy import generate
+        return generate(config,draft,model,call_responses_api,proposal_quality_issues,sanitized_product_context,_site_ids)
     response = call_responses_api(config, build_responses_request(draft, model))
     try:
-        proposal = json.loads(_output_text(response))
+        proposal = normalize_copy_sections(json.loads(_output_text(response)))
     except json.JSONDecodeError as exc:
         raise AIListingError("模型没有返回可解析的结构化 JSON。") from exc
     issues = proposal_quality_issues(proposal, draft)
@@ -395,11 +512,15 @@ def generate_quality_checked_proposal(
         retries = 1
         response = call_responses_api(config, build_repair_request(draft, model, proposal, issues))
         try:
-            proposal = json.loads(_output_text(response))
+            proposal = normalize_copy_sections(json.loads(_output_text(response)))
         except json.JSONDecodeError as exc:
             raise AIListingError("模型修订后仍未返回可解析的结构化 JSON。") from exc
         issues = proposal_quality_issues(proposal, draft)
     if issues:
+        import hashlib
+        from datetime import datetime,timezone
+        ident=hashlib.sha256(json.dumps(sanitized_product_context(draft),ensure_ascii=False,sort_keys=True).encode('utf-8')).hexdigest()[:16]
+        write_json(ROOT/'ai_outputs'/'rejected-copy'/(ident+'.json'),{'created_at':datetime.now(timezone.utc).isoformat(),'quality_issues':issues,'proposal':proposal,'model':response.get('model'),'paid_api_used':response.get('paid_api_used')})
         raise AIListingError("AI 文案质量检查未通过：" + "；".join(issues))
     return proposal, response, retries
 
@@ -440,7 +561,9 @@ def main(argv: list[str] | None = None) -> int:
         {
             "status": "AI_PROPOSAL_REQUIRES_HUMAN_REVIEW",
             "source_draft": str(args.draft),
-            "model": config["model"],
+            "model": response.get("model", config["model"]),
+            "provider": response.get("provider"),
+            "paid_api_used": response.get("paid_api_used"),
             "proposal": proposal,
             "response_id": response.get("id"),
             "usage": response.get("usage"),

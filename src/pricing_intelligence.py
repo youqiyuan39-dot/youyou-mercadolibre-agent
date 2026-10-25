@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import statistics
+import math
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,7 +17,16 @@ def _number(value: Any) -> float | None:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    return result if result >= 0 else None
+    return result if math.isfinite(result) and result >= 0 else None
+
+def _cost_value(pricing, key, assumptions):
+    value=_number(pricing.get(key))
+    if value is not None:return value
+    scenario=(pricing.get('cost_assumptions') or {}).get(key)
+    if isinstance(scenario,dict) and str(scenario.get('reason') or '').strip():
+        value=_number(scenario.get('value'))
+        if value is not None:assumptions.append(key+'='+str(value)+'（情景假设：'+str(scenario['reason'])+'）')
+    return value
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -33,64 +44,68 @@ def apply_inventory_rule(draft: dict[str, Any]) -> None:
     supplier = draft.setdefault("evidence", {}).setdefault("supplier_page", {})
     if _number(payload.get("available_quantity")) is not None:
         return
-    inventories = [int(value) for row in supplier.get("skus") or [] if (value := _number(row.get("inventory"))) is not None]
-    payload["available_quantity"] = sum(inventories) if inventories else 1000
+    payload["available_quantity"] = 200
     supplier["available_quantity"] = payload["available_quantity"]
-    supplier["inventory_source"] = "1688_SKU_AVAILABLE_QUANTITY" if inventories else "DEFAULT_1000_WHEN_1688_UNAVAILABLE"
+    supplier["inventory_source"] = "DEFAULT_200_USER_POLICY"
 
 
 def forwarder_unit_cost(pricing: dict[str, Any]) -> dict[str, Any]:
-    """Calculate confirmed Xinbiao warehouse/packing charges for one order unit."""
-    service = _number(pricing.get("forwarder_packing_service_cny"))
-    material = _number(pricing.get("forwarder_packaging_material_cny"))
-    value_added = _number(pricing.get("forwarder_value_added_cny"))
-    label = _number(pricing.get("forwarder_label_cny"))
-    service = 0.6 if service is None else service
-    material = 0.0 if material is None else material
-    value_added = 0.0 if value_added is None else value_added
-    label = (0.1 if pricing.get("forwarder_stocking") is True else 0.0) if label is None else label
+    """Known or explicitly assumed charges; missing package never means zero surcharge."""
+    assumptions=[]
+    keys=('forwarder_packing_service_cny','forwarder_packaging_material_cny','forwarder_value_added_cny','forwarder_label_cny')
+    service,material,value_added,label=[_cost_value(pricing,key,assumptions) for key in keys]
     weight_g = _number(pricing.get("package_weight_g"))
     length = _number(pricing.get("package_length_cm"))
     width = _number(pricing.get("package_width_cm"))
     height = _number(pricing.get("package_height_cm"))
-    oversize = any(value is not None and value > 45 for value in (length, width, height))
+    dimensions_known=all(v is not None and v>0 for v in (length,width,height))
+    oversize = any(value > 45 for value in (length, width, height)) if dimensions_known else None
     actual_kg = weight_g / 1000 if weight_g is not None else None
     volume_kg = length * width * height / 12000 if oversize and None not in (length, width, height) else None
     weights = [value for value in (actual_kg, volume_kg) if value is not None]
     billable_kg = max(weights) if weights else None
-    overweight = max(0.0, billable_kg - 5.0) if oversize and billable_kg is not None else 0.0
-    total = service + material + value_added + label + overweight
+    package_known=dimensions_known and weight_g is not None and weight_g>0
+    overweight = max(0.0, billable_kg - 5.0) if package_known else None
+    missing=[k for k,v in zip(keys,(service,material,value_added,label)) if v is None]
+    missing.extend(k for k,v in [('package_weight_g',weight_g),('package_length_cm',length),('package_width_cm',width),('package_height_cm',height)] if v is None or v<=0)
+    total = service + material + value_added + label + overweight if not missing else None
     return {
+        'status':'COST_INPUTS_INCOMPLETE' if missing else 'BUDGET_ESTIMATE',
+        'missing_inputs':missing,'assumptions':assumptions,
         "source": "鑫标服务收费明细26.8.15(1).doc",
-        "packing_service_cny": round(service, 2),
-        "packaging_material_cny": round(material, 2),
-        "value_added_service_cny": round(value_added, 2),
-        "warehouse_label_cny": round(label, 2),
+        "packing_service_cny": round(service, 2) if service is not None else None,
+        "packaging_material_cny": round(material, 2) if material is not None else None,
+        "value_added_service_cny": round(value_added, 2) if value_added is not None else None,
+        "warehouse_label_cny": round(label, 2) if label is not None else None,
         "oversize_rule_applied": oversize,
         "volumetric_divisor_if_any_side_over_45cm": 12000,
         "billable_weight_kg": round(billable_kg, 3) if billable_kg is not None else None,
-        "over_5kg_surcharge_cny": round(overweight, 2),
-        "total_cny": round(total, 2),
+        "over_5kg_surcharge_cny": round(overweight, 2) if overweight is not None else None,
+        "total_cny": round(total, 2) if total is not None else None,
     }
 
 
 def profit_methodology(pricing: dict[str, Any]) -> dict[str, Any]:
+    from .autopricing_v3 import margin_policy,policy
+    assumptions=[]
     mode = str(pricing.get("mode") or "net_proceeds").strip().lower()
     required = {
-        "purchase_cost_cny": _number(pricing.get("purchase_cost_cny")),
-        "domestic_shipping_cny": _number(pricing.get("domestic_shipping_cny")),
+        "purchase_cost_cny": _cost_value(pricing,'purchase_cost_cny',assumptions),
+        "domestic_shipping_cny": _cost_value(pricing,'domestic_shipping_cny',assumptions),
         "exchange_rate_cny_per_usd": _number(pricing.get("exchange_rate_cny_per_usd")),
-        "packaging_cost_usd": _number(pricing.get("packaging_cost_usd")),
+        "packaging_cost_usd": _cost_value(pricing,'packaging_cost_usd',assumptions),
     }
-    other_cost = _number(pricing.get("other_cost_usd"))
+    other_cost = _cost_value(pricing,'other_cost_usd',assumptions)
+    required['other_cost_usd']=other_cost
     if mode != "net_proceeds":
         required["cross_border_freight_usd"] = _number(pricing.get("cross_border_freight_usd"))
     missing = [key for key, value in required.items() if value is None or (key == "exchange_rate_cny_per_usd" and value <= 0)]
     forwarder = forwarder_unit_cost(pricing)
+    missing=list(dict.fromkeys(missing+forwarder['missing_inputs']))
+    decision_policy=margin_policy(policy(Path(__file__).resolve().parents[1]),'NET_PROCEEDS')
     result: dict[str, Any] = {
         "objective": "unit_contribution_profit",
-        "acceptable_margin_range_pct": [10, 30],
-        "preferred_margin_pct": 30,
+        'margin_policy':decision_policy,'margin_basis':'NET_PROCEEDS','assumptions':assumptions+forwarder['assumptions'],
         "pricing_mode": mode,
         "formula": (
             "单位贡献利润=卖家净回款-采购-国内运费-包装-货代操作费-其他变动成本；"
@@ -107,20 +122,14 @@ def profit_methodology(pricing: dict[str, Any]) -> dict[str, Any]:
         return result
     base_usd = (required["purchase_cost_cny"] + required["domestic_shipping_cny"]) / required["exchange_rate_cny_per_usd"]
     forwarder_usd = forwarder["total_cny"] / required["exchange_rate_cny_per_usd"]
-    total_cost = base_usd + required["packaging_cost_usd"] + forwarder_usd + (other_cost or 0)
+    total_cost = base_usd + required["packaging_cost_usd"] + forwarder_usd + other_cost
     if mode != "net_proceeds":
         total_cost += required["cross_border_freight_usd"]
-    low = total_cost / 0.90
-    high = total_cost / 0.70
     result.update({
-        "status": "PROVISIONAL_CONTRIBUTION_RANGE",
+        "status": "COST_SCENARIO_UNVERIFIED",
         "known_variable_cost_usd": round(total_cost, 2),
         "forwarder_cost_usd": round(forwarder_usd, 2),
-        "recommended_net_proceeds_range_usd": [round(low, 2), round(high, 2)],
-        "unit_contribution_range_usd": [round(low - total_cost, 2), round(high - total_cost, 2)],
-        "preferred_target_net_proceeds_usd": round(high, 2),
-        "limitations": "该区间以卖家净回款为口径；税费、广告、退货等若未计入其他成本，仍不能称为最终净利润。货代包装材料和增值服务未选择时按 0 计算。",
-        "assumptions": (["其他变动成本未填写，当前暂按 0 USD 估算"] if other_cost is None else []),
+        "limitations": "已记录成本或明确声明的情景假设；不是实得净利润。净回款贡献利润率不能代替买家售价利润率；费用未核实不得自动放行。",
         "platform_cost_treatment": (
             "REMOTE_NET_PROCEEDS_INCLUDES_PLATFORM_SHIPPING_AND_SALE_FEE"
             if mode == "net_proceeds" else "MANUAL_PRICE_REQUIRES_PLATFORM_COST_INPUTS"
@@ -133,11 +142,11 @@ def profit_methodology(pricing: dict[str, Any]) -> dict[str, Any]:
             "net_proceeds_usd": round(target, 2),
             "unit_contribution_usd": round(target - total_cost, 2),
             "margin_pct": round(margin, 1),
-            "assessment": (
-                "NEAR_30_PERCENT_TARGET" if 29 <= margin <= 31
-                else ("ACCEPTABLE" if 10 <= margin < 29 else ("BELOW_ACCEPTABLE" if margin < 10 else "ABOVE_PREFERRED"))
-            ),
+            'margin_basis':'NET_PROCEEDS','assessment':'COST_SCENARIO_UNVERIFIED',
         }
+    margins=pricing.get('scenario_margin_pcts') or []
+    if isinstance(margins,list) and margins and all(_number(v) is not None and 0<=float(v)<100 for v in margins):
+        result['scenario_targets']=[{'net_margin_pct':float(v),'net_proceeds_usd':round(total_cost/(1-float(v)/100),2),'status':'EXPLICIT_SCENARIO_ONLY'} for v in margins]
     return result
 
 

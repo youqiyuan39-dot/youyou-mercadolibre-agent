@@ -95,13 +95,16 @@ class MercadoLibreClientTests(unittest.TestCase):
         captured = {}
 
         class Response:
+            from email.message import Message
+            headers=Message()
+            headers['Content-Type']='application/json'
             def __enter__(self):
                 return self
 
             def __exit__(self, *_args):
                 return None
 
-            def read(self):
+            def read(self, limit=None):
                 return b'{"name":"Parts"}'
 
         original = ml.urllib.request.urlopen

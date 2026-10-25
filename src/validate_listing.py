@@ -2,6 +2,11 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from .barcode_policy import barcode_issues
+except ImportError:
+    from barcode_policy import barcode_issues
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -27,21 +32,7 @@ def validate(product):
         if not present(evidence.get(field)):
             errors.append(f"缺少{label}")
 
-    payload_attributes = {
-        item.get("id"): item.get("value_name")
-        for item in (product.get("payload", {}).get("attributes") or [])
-        if isinstance(item, dict)
-    }
-    gtin = evidence.get("gtin") or payload_attributes.get("GTIN")
-    exemption = evidence.get("gtin_exemption_evidence") or evidence.get("gtin_or_exemption")
-    barcode_type = str(product.get("payload", {}).get("barcode_type") or "").upper()
-    pending_no_gtin = barcode_type == "NO_GTIN" and exemption == "NO_GTIN_PENDING_CATEGORY_CHECK"
-    if not present(gtin) and not present(exemption):
-        errors.append("缺少真实条码或平台无条码依据")
-    elif pending_no_gtin:
-        warnings.append("已按无条码商品处理，正式发布前需通过官方类目校验")
-        if product.get("human_approved") is True:
-            errors.append("无条码原因尚未通过官方类目校验")
+    errors.extend(barcode_issues(product))
 
     if not present(evidence.get("compatibility_evidence")):
         warnings.append("缺少型号兼容证据，不能让 AI 自行补写")

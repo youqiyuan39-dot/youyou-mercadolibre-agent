@@ -15,7 +15,8 @@ def digest(value):
 
 def text_signature(draft, public):
     from .prompt_policy_v3 import PROMPT_VERSION
-    return digest({'prompt_version': PROMPT_VERSION, 'category_id': (draft.get('payload') or {}).get('category_id'), 'facts': product_from_draft(draft)['facts_version'], 'template': (draft.get('evidence') or {}).get('prompt_template'), 'models': {key: {k: (public.get('roles') or {}).get(key, {}).get(k) for k in ['model', 'base_url']} for key in ['vision', 'attributes']}})
+    from .attribute_context_v3 import POLICY_VERSION
+    return digest({'prompt_version': PROMPT_VERSION,'attribute_policy_version':POLICY_VERSION, 'category_id': (draft.get('payload') or {}).get('category_id'), 'facts': product_from_draft(draft)['facts_version'], 'template': (draft.get('evidence') or {}).get('prompt_template'), 'models': {key: {k: (public.get('roles') or {}).get(key, {}).get(k) for k in ['model', 'base_url']} for key in ['vision', 'attributes']}})
 
 
 def image_signature(prompts, paths, public_role):
@@ -48,7 +49,10 @@ def install(legacy):
         previous = legacy.read_json(checkpoint) if checkpoint.exists() else {}
         proposal_path = root / 'ai_outputs' / (path.stem + '-proposal.json')
         conflicts = [i for i in review_issues(draft) if '容量' in i or '当前 SKU 不在' in i]
-        if previous.get('text_signature') == signature and proposal_path.is_file() and not conflicts:
+        proposal=legacy.read_json(proposal_path).get('proposal') if proposal_path.is_file() else None
+        from .ai_listing_pipeline import proposal_quality_issues
+        copy_valid=bool(proposal and not proposal_quality_issues(proposal,draft))
+        if previous.get('text_signature') == signature and copy_valid and (draft.get('payload') or {}).get('description') and not conflicts:
             audit(root, '复用文案与属性', {'name': path.name, 'signature': signature})
             return
         original_apply(path, root, full_path, job)

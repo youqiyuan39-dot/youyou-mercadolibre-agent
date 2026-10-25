@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from . import store_management as stores, mercadolibre_oauth as oauth
-from .mercadolibre_client import MercadoLibreClient
+from .mercadolibre_client import MercadoLibreClient, MercadoLibreAPIError
 
 LOCK = threading.RLock()
 KINDS = {'listings', 'metrics', 'orders', 'billing', 'messages', 'pending', 'campaigns'}
@@ -50,12 +50,20 @@ def client_for(root, row):
     client = MercadoLibreClient(private.get('access_token'))
     try:
         me = client.me()
-    except Exception as exc:
-        if '失效' not in str(exc): raise
-        config=stores.get_runtime_oauth_config(root)
-        oauth.refresh_tokens(client_id=config['client_id'],client_secret=config['client_secret'],token_file=stores._token_path(root,row['id']))
-        client=MercadoLibreClient(oauth.load_private_json(stores._token_path(root,row['id'])).get('access_token'))
-        me=client.me()
+    except MercadoLibreAPIError as exc:
+        if exc.http_status != 401: raise
+        # Another request may already have renewed the same store. Reload under
+        # the lock before consuming a rotating refresh token a second time.
+        with LOCK:
+            client=MercadoLibreClient(oauth.load_private_json(stores._token_path(root,row['id'])).get('access_token'))
+            try:
+                me=client.me()
+            except MercadoLibreAPIError as current:
+                if current.http_status != 401: raise
+                config=stores.get_runtime_oauth_config(root)
+                oauth.refresh_tokens(client_id=config['client_id'],client_secret=config['client_secret'],token_file=stores._token_path(root,row['id']))
+                client=MercadoLibreClient(oauth.load_private_json(stores._token_path(root,row['id'])).get('access_token'))
+                me=client.me()
     if str(me.get('id')) != str(row.get('merchant_id')):
         raise ValueError('授权身份与店铺登记不一致，已停止查询')
     return client, me

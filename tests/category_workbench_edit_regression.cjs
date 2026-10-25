@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const code=fs.readFileSync('web/workbench_v3.js','utf8');
+const elements={content:{hidden:false},legacy:{hidden:true}};
+const context={$:id=>elements[id],generation:8,pollTimer:123,clearTimeout:id=>context.cancelled=id};vm.createContext(context);
+vm.runInContext(code.slice(code.indexOf('function openLegacy('),code.indexOf('async function showOverview(')),context);
+context.openLegacy('/editor?draft=example-draft.json');
+assert.equal(context.cancelled,123);assert.equal(context.generation,9);assert.equal(elements.legacy.hidden,false);
+assert.equal(elements.legacy.src,'/legacy/editor?draft=example-draft.json');
+assert(code.includes("if(generation!==epoch||!$('legacy').hidden)return;renderRows();"));
+console.log('Opening an editor invalidates pending list refresh; a late response cannot close the editor.');

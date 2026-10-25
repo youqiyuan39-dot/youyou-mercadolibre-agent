@@ -9,16 +9,20 @@
   panel.style.cssText = 'display:none;width:270px;margin-bottom:8px;padding:14px;border:1px solid #dbeafe;border-radius:11px;background:#fff;box-shadow:0 8px 28px rgba(15,23,42,.22);font-size:13px';
   panel.innerHTML = `
     <strong style="display:block;margin-bottom:4px">选择采集方式</strong>
-      <small style="display:block;margin-bottom:10px;color:#64748b">悠悠采集 0.7.1</small>
+      <small style="display:block;margin-bottom:10px;color:#64748b">悠悠采集 0.8.4</small>
     <div style="display:flex;gap:8px">
       <button type="button" data-mode="multi">多 SKU 采集</button>
       <button type="button" data-mode="single">单 SKU 采集</button>
     </div>
+    <label data-sku-picker style="display:none;margin-top:10px">本次处理的规格
+      <select data-sku-id style="width:100%;margin-top:5px;padding:8px"></select>
+      <small>保留全部货源记录，只处理明确选择的一个SKU。</small>
+    </label>
     <details style="margin-top:12px" open>
       <summary style="cursor:pointer;font-weight:600">人工包装规格（可选）</summary>
       <label style="display:block;margin-top:9px">包装重量（kg）<input data-weight type="number" min="0" step="0.001" placeholder="例如 0.2"></label>
       <label style="display:block;margin-top:8px">包装尺寸（长-宽-高，cm）<input data-size placeholder="例如 10-10-10"></label>
-      <small style="display:block;margin-top:7px;color:#64748b">可留空：默认由AI识别；手填后以手填值为准。</small>
+      <small style="display:block;margin-top:7px;color:#64748b">默认自动读取包装表和明确标注图；源资料缺失时不会估测三边。</small>
     </details>
     <div data-status style="display:none;margin-top:10px;line-height:1.45"></div>`;
   panel.querySelectorAll('button[data-mode]').forEach(node => {
@@ -65,8 +69,35 @@
     try {
       const payload = await collectVisible1688Product();
       payload.collection_mode = mode;
+      const picker = panel.querySelector('[data-sku-picker]');
+      const select = panel.querySelector('[data-sku-id]');
+      if (mode === 'single' && payload.skus.length > 1) {
+        const chosen = select.value;
+        if (!chosen || payload.skus.filter(row => row.sku_id === chosen).length !== 1) {
+          select.replaceChildren();
+          const placeholder = document.createElement('option');
+          placeholder.value = ''; placeholder.textContent = '请选择一个真实规格';
+          select.appendChild(placeholder);
+          for (const row of payload.skus) {
+            if (!row.sku_id) continue;
+            const option = document.createElement('option');
+            option.value = row.sku_id;
+            option.textContent = `${row.variant || row.sku_id}（${row.sku_id}）`;
+            select.appendChild(option);
+          }
+          picker.style.display = 'block';
+          showStatus(`检测到${payload.skus.length}个SKU，请选择本次规格，再点“单SKU采集”。尚未提交。`);
+          return;
+        }
+        payload.selected_sku_id = chosen;
+      } else if (mode === 'single' && payload.skus.length === 1 && payload.skus[0].sku_id) {
+        payload.selected_sku_id = payload.skus[0].sku_id;
+      } else {
+        picker.style.display = 'none';
+        select.value = '';
+      }
       applyManualPackage(payload);
-      const result = await chrome.runtime.sendMessage({type: 'YOUYOU_COLLECT', payload});
+      const result = await YouyouLocal.send({type: 'YOUYOU_COLLECT', payload});
       if (!result?.ok) throw new Error(result?.error || '采集失败');
       const counts = result.image_counts || {};
       const modeText = mode === 'multi' ? '多SKU' : '单SKU';

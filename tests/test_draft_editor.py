@@ -186,7 +186,8 @@ class DraftEditorTests(unittest.TestCase):
         with self.assertRaises(EditorError):
             get_draft("../sample-draft.json", self.drafts, self.root)
 
-    def test_save_updates_working_draft_and_keeps_backup(self):
+    @patch('src.draft_editor.query_official_category',return_value={'category_id':'CBT123','name':'Fixture category','all_attributes':[]})
+    def test_save_updates_working_draft_and_keeps_backup(self,query):
         source, snapshot, backup = save_edited_draft(
             "sample-draft.json",
             {

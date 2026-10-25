@@ -6,7 +6,7 @@
   <title>美客多商品详情编辑</title>
   <link rel="stylesheet" href="/editor.css">
 <link rel="icon" type="image/png" href="/assets/brand/youyou-logo.png"></head>
-<body>
+<body data-ui-version="EDITOR_FOCUS_20261017_V2">
   <aside>
     <div class="brand" style="display:flex;align-items:center;gap:10px"><span style="display:grid;place-items:center;flex:none;width:40px;height:40px;border-radius:10px;background:#1476ad;overflow:hidden"><img src="/assets/brand/youyou-logo.png" alt="" style="width:40px;height:40px;mix-blend-mode:screen"></span><span>悠悠美客多<br>AI 上架</span></div>
     <div class="store-card"><strong>Mercado Libre Store</strong><small>本机草稿工作台</small></div>
@@ -14,7 +14,7 @@
       <span>工作台</span>
       <a href="/">▣ 商品处理</a>
       <a class="active" href="/editor">✎ 详情编辑</a>
-      <a href="/review">✓ 商品审核</a>
+
       <a href="/publish">↑ 发布中心</a>
       <span>数据</span>
       <button type="button" disabled>⌁ 商品采集 <em>扩展完成</em></button>
@@ -28,12 +28,12 @@
     <div id="draftList" class="draft-list"></div>
   </aside>
   <main>
-    <header>
+    <header class="editor-header">
       <div>
         <div class="eyebrow">商品处理 / 详情编辑</div>
         <h1 id="pageTitle">选择一个商品</h1>
       </div>
-      <button id="saveButton" class="primary" disabled>保存商品</button>
+      <div class="editor-header-actions"><a id="sourceWebsite" class="source-website hidden" target="_blank" rel="noopener noreferrer">查看货源网站 ↗</a><button id="saveButton" class="primary" disabled>保存商品</button></div>
     </header>
 
     <div id="message" class="message hidden"></div>
@@ -46,10 +46,13 @@
         <p id="validationText"></p>
       </section>
 
-      <nav class="jump-nav">
+      <div class="editor-context">
+      <section id="skuContext" class="sku-context hidden" aria-label="当前编辑的 SKU"><label>当前编辑 SKU<select id="currentSku"></select></label><p>文案、属性、采购与包装随此 SKU 切换；切换会暂存修改，完成后请保存商品。<a href="#skuManagement">查看全部 SKU 与定价 →</a></p></section>
+      <nav class="jump-nav" aria-label="商品编辑分区">
         <a href="#basic">基本资料</a><a href="#physical">包装</a><a href="#pricing">定价</a><a href="#sites">站点</a>
-        <a href="#attributes">属性</a><a href="#ai">AI结果</a><a href="#aiImages">AI生图</a><a href="#sourceImages">采集原图</a><a href="#images">上架图片</a><a href="#evidence">来源证据</a>
+        <a href="#attributes">属性</a><a href="#ai">AI结果</a><a href="#sourceImages">1 选原图</a><a href="#images">2 核对上架图</a><a href="#aiImages">3 AI补图</a><a id="skuManagementLink" class="hidden" href="#skuManagement">SKU 与定价</a>
       </nav>
+      </div>
 
       <section id="basic" class="panel">
         <h2>基本资料</h2>
@@ -80,7 +83,7 @@
       </section>
 
       <section id="pricing" class="panel">
-        <div class="panel-title"><div><h2>竞品定价与利润区间</h2><p class="tip">完整 AI 流程会读取目标站点竞品；采购、国内运费、汇率和包装成本齐全后给出 10%–30% 可接受区间，并优先靠近 30%。</p></div><button id="refreshCompetitors" type="button">刷新竞品与利润区间</button><span class="warning-tag">利润为估算值</span></div>
+        <div class="panel-title"><div><h2>竞品定价与利润预算</h2><p class="tip">优先跟随已确认的同规格自发货参考价，按买家售价核验10%贡献利润底线；未取得参考价时保留独立成本预算候选，发布前核对。</p></div><button id="refreshCompetitors" type="button">刷新竞品与利润区间</button><span class="warning-tag">利润为预算值</span></div>
         <div class="grid four">
           <label>采购价(CNY)<input id="purchaseCost" type="number" min="0" step="0.01"></label>
           <label>国内运费(CNY)<input id="domesticShipping" type="number" min="0" step="0.01"></label>
@@ -91,12 +94,12 @@
           <label>利润测算参考净回款(USD，不直接发布)<input id="targetNet" type="number" min="0" step="0.01"></label>
           <label>估算剩余(USD)<input id="estimatedRemainder" readonly></label>
         </div>
-        <p id="pricingNote" class="tip">这是卖家净回款减已知成本的估算；其他成本留空时暂按 0 USD 计算并明确提示，不阻止审核或进入发布中心。</p>
+        <p id="pricingNote" class="tip">未知成本留空，不当作0；这里展示预算，最终按逐SKU计算结果及明确假设核对，不代表实得净利润。</p>
         <div id="pricingIntelligence" class="candidate">尚未取得竞品数据；请先选择站点并保存，再运行完整 AI 流程或点击刷新。</div>
       </section>
 
       <section id="physical" class="panel">
-        <div class="panel-title"><h2>运输包装</h2><span class="tip">官方上传必填；可使用供应商或官方仓规则估算，人工确认后可锁定</span></div>
+        <div class="panel-title"><h2>运输包装</h2><span class="tip">商品规格尺寸另行保留；本区只填写对应SKU有依据的含包装重量与包装三边，不能从商品两边补造第三边。</span></div>
         <div class="grid five">
           <label>总重(g)<input id="weight" type="number" min="0" step="0.01"></label>
           <label>长(cm)<input id="length" type="number" min="0" step="0.01"></label>
@@ -140,7 +143,7 @@
       </section>
 
       <section id="aiImages" class="panel">
-        <div class="panel-title"><div><h2>AI 生成图片</h2><p class="tip">使用你自己账号的生图 API；完整流程生成后自动排到上架图片区前面，发布前仍需人工核对。</p></div><span id="aiImageStatus" class="warning-tag">尚未生成</span></div>
+        <div class="panel-title"><div><h2>AI 生成图片</h2><p class="tip">先使用筛选合格的货源原图；需要补图时，由你确认后才调用生图 API。生成结果仍需核对商品结构。</p></div><span id="aiImageStatus" class="warning-tag">尚未生成</span></div>
         <div class="grid three ai-image-controls">
           <label>画面文字语言<select id="imageLanguage"><option value="auto">自动（推荐）</option><option value="none">全部无文字</option><option value="es">西班牙语</option><option value="pt">葡萄牙语（巴西）</option></select></label>
           <div class="language-gate"><strong>语言门禁</strong><span id="languageGateText">主图不允许任何文字</span></div>
@@ -153,8 +156,8 @@
 
       <section id="sourceImages" class="panel">
         <div class="panel-title"><h2>采集原图</h2><span class="tip">原始图片永久保留</span></div>
-        <p class="tip">自动区分商品原图和 SKU 图片。勾选需要用于上架的图片；取消勾选只会移出上架区。</p>
-        <div id="sourceGallery" class="gallery"></div>
+        <p class="tip">质量初筛与上架选择分别记录。多 SKU 图片需先确认款式归属，再加入该 SKU；初筛候选不等于已选上架。人工选择或锁定保留的图片仍需核对质量。</p>
+        <div id="sourceImageSummary" class="image-summary" role="status"></div><div id="sourceGallery" class="gallery"></div>
         <h3>详情图片（只作货源证据）</h3>
         <p class="tip">详情图片不会自动放进上架图片区。</p>
         <div id="detailGallery" class="gallery"></div>
@@ -167,11 +170,10 @@
         <div id="gallery" class="gallery"></div>
       </section>
 
-      <section id="evidence" class="panel">
-        <h2>来源证据（只读）</h2>
-        <div id="sourceSummary" class="metric-row"></div>
+      <section id="skuManagement" class="panel hidden">
+        <h2>SKU 与独立定价</h2>
         <div id="skuSection" class="hidden">
-          <div class="panel-title"><div><h3>多 SKU 采集与核价</h3><p class="tip">每个 SKU 独立保存采购价、库存、包裹重尺、卖家 SKU、条码、组合属性、图片，以及每个站点的刊登金额。选择“当前核价 SKU”只会同步该规格；其他 SKU 不会被覆盖。</p></div><label>当前核价 SKU<select id="currentSku"></select></label></div>
+          <div class="panel-title"><div><h3>多 SKU 采集与核价</h3><p class="tip">每个 SKU 独立保存采购价、库存、包裹重尺、卖家 SKU、条码、组合属性、图片，以及每个站点的刊登金额。选择“当前核价 SKU”会加载该规格的描述、属性和核价资料；切换时保留本页未保存的文案修改，最后统一保存商品。</p></div></div>
           <p id="skuPublishHint" class="tip"></p>
           <div class="sku-pricing-matrix-block">
             <div class="matrix-title"><div><h3>SKU × 站点独立定价</h3><p class="tip">行是 SKU，列是站点。这里只填写最终发布金额；上方利润测算参考值不会写入发布请求。</p></div><span class="matrix-badge">唯一价格入口</span></div>
@@ -179,14 +181,13 @@
           </div>
           <div id="skuCards" class="sku-cards"></div>
         </div>
-        <div id="evidenceBox" class="evidence"></div>
       </section>
 
       <footer>只有点击“提交 AI 生图”才会消耗生图额度；本页不发布商品，保存时会先备份旧稿，再更新当前商品。</footer>
     </form>
     <nav id="detailNav" class="detail-nav hidden" aria-label="编辑导航">
       <strong>编辑导航</strong>
-      <a href="#basic">商品来源</a><a href="#evidence">采集信息</a><a href="#ai">AI 商品内容</a>
+      <a href="#basic">商品来源</a><a href="#skuManagement">SKU 与定价</a><a href="#ai">AI 商品内容</a>
       <a href="#aiImages">AI 生成图片</a><a href="#images">商品上架图片</a><a href="#sites">CBT 全球上架字段</a>
       <a href="#pricing">1688 货源核价</a><a href="#attributes">类目属性</a>
     </nav>

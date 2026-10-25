@@ -1,4 +1,6 @@
 (() => {
+  if(globalThis.__youyouPageBridge) return;
+  globalThis.__youyouPageBridge = true;
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
 
   function extractStructuredProduct() {
@@ -15,7 +17,7 @@
       const descriptionUrl = clean(ctx.description?.fields?.detailUrl);
       let packInfo = ctx.productPackInfo?.fields?.pieceWeightScale;
       if (typeof packInfo === 'string') packInfo = JSON.parse(packInfo);
-      const packRows = packInfo?.pieceWeightScaleInfo || [];
+      const packRows = YouyouPackaging.rows(packInfo);
       const weightBySku = new Map(packRows.filter(row => row?.skuId).map(row => [String(row.skuId), row]));
       const canonicalImage = value => clean(value).replace(/^\/\//, 'https://');
       const imageSets = [];
@@ -37,15 +39,12 @@
         const parts = typeof row.specAttrs === 'string'
           ? row.specAttrs.replace(/&gt;/g, '>').split('>').map(clean).filter(Boolean)
           : [];
-        const pack = weightBySku.get(String(row.skuId || '')) || null;
+        const pack = YouyouPackaging.match(row, packRows, skuRows.length);
         return {
           sku_id: clean(row.skuId), spec_id: clean(row.specId), variant: parts.join(' / '),
           price: Number(row.discountPrice || row.price || 0) || null,
           inventory: Number(row.canBookCount ?? row.amountOnSale ?? 0),
-          package: pack ? {
-            weight_g: Number(pack.weight) || null, length_cm: Number(pack.length) || null,
-            width_cm: Number(pack.width) || null, height_cm: Number(pack.height) || null
-          } : null
+          package: pack
         };
       });
       const orderParam = root.orderParamModel?.orderParam || {};

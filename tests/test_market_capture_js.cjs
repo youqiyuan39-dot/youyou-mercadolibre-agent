@@ -1,0 +1,11 @@
+const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
+const headers=['','','图片','商品名称','销量','销量变化率','价格','净收益价','上架日期','品牌/卖家','评论数/评分','库存','子类目','操作'];
+const cells=['','','','test','50-100','','5.68美元104.08墨西哥比索','4.60美元84.27墨西哥比索','2026-09-18','Generic','0/0','状态:在售 自发货','Computación > Audífonos',''];
+let listener,captured;
+const row={innerText:'SKU:MLM3512099265 自发货',closest:()=>({querySelectorAll:()=>[]}),querySelectorAll:()=>cells.map(innerText=>({innerText})),querySelector:()=>({innerText:'test'})};
+const button={innerText:'1688同款',closest:()=>row};
+vm.runInNewContext(fs.readFileSync('collector_extension/local_transport.js','utf8')+'\n'+fs.readFileSync('collector_extension/market_reference.js','utf8'),{document:{querySelectorAll:()=>headers.map(innerText=>({innerText})),addEventListener:(_type,fn)=>{listener=fn;}},chrome:{runtime:{sendMessage:value=>{captured=value;return Promise.resolve();}}},Date});
+listener({target:{closest:()=>button}});
+assert.equal(captured.market_reference.buyer_price_usd,'5.68');assert.equal(captured.market_reference.net_proceeds_usd,'4.60');assert.equal(captured.market_reference.category_path,'Computación > Audífonos');
+captured=null;cells[11]='本地仓';listener({target:{closest:()=>button}});assert.equal(captured,null);
+console.log('4 fixed-header capture/self-ship checks passed');

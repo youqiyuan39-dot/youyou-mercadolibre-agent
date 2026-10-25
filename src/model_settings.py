@@ -15,6 +15,11 @@ except ImportError:
     from mercadolibre_oauth import load_private_json, save_private_json
 
 
+try:
+    from . import local_model_runtime
+except ImportError:
+    import local_model_runtime
+
 ROLE_DEFAULTS = {
     "vision": {"label": "多模态商品识别", "base_url": "https://suoxie.codes/v1", "model": "gpt-5.5"},
     "images": {"label": "商品生图", "base_url": "https://suoxie.codes/v1/images/edits/async", "model": "gpt-image-2"},
@@ -73,6 +78,10 @@ def get_public_settings(root: Path) -> dict[str, Any]:
             "model": str(current.get("model") or defaults["model"]),
             "has_key": bool(keys.get(role)),
         }
+    local = local_model_runtime.profile(root)
+    for role in ("vision", "attributes"):
+        roles[role].update(label="本地商品理解与文案" if role == "vision" else "本地属性补全", base_url=local["base_url"], model=local["model"], provider="local", requires_key=False, has_key=False, ready=True, vision=bool(local.get("vision")))
+    roles["images"].update(provider="paid_images", requires_key=True)
     strategy = {
         "image_language": str(stored["strategy"].get("image_language") or "auto"),
         "reference_image_count": int(stored["strategy"].get("reference_image_count") or 3),
@@ -94,6 +103,9 @@ def save_model_settings(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     roles = {}
     for role, defaults in ROLE_DEFAULTS.items():
         incoming = incoming_roles.get(role) if isinstance(incoming_roles.get(role), dict) else {}
+        if role != "images":
+            roles[role] = {"base_url": current["roles"][role]["base_url"], "model": current["roles"][role]["model"]}
+            continue
         roles[role] = {
             "base_url": _validate_url(incoming.get("base_url") or current["roles"][role]["base_url"]),
             "model": str(incoming.get("model") or current["roles"][role]["model"]).strip()[:120],
@@ -126,18 +138,27 @@ def get_api_key(root: Path, role: str) -> str:
 
 
 def get_runtime_role(root: Path, role: str) -> dict[str, Any]:
+    if role in {"vision", "attributes"}:
+        local = local_model_runtime.profile(root)
+        return {"label": "本地商品理解与文案" if role == "vision" else "本地属性补全", "base_url": local["base_url"], "model": local["model"], "api_key": "", "requires_key": False, "provider": "local", "vision": bool(local.get("vision"))}
     public = get_public_settings(root)
     if role not in public["roles"]:
         raise ModelSettingsError("未知的模型用途。")
     result = dict(public["roles"][role])
-    result["api_key"] = get_api_key(root, role)
+    result["api_key"] = "" if role != "images" else get_api_key(root, role)
     return result
 
 
 def test_connection(root: Path, role: str) -> dict[str, Any]:
     config = get_runtime_role(root, role)
+    if role != "images":
+        try:
+            ready = local_model_runtime.ensure(root)
+            return {"connected": True, "http_status": 200, "probe": "/v1/models", "provider": "local", "model": ready["model"], "paid_api_used": False}
+        except local_model_runtime.LocalModelError as exc:
+            raise ModelSettingsError(str(exc)) from exc
     if not config["api_key"]:
-        raise ModelSettingsError("尚未保存 API Key。")
+        raise ModelSettingsError("尚未保存图片 API Key。")
     endpoint = config["base_url"]
     parsed = urllib.parse.urlparse(endpoint)
     probe = f"{parsed.scheme}://{parsed.netloc}/v1/models"

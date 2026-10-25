@@ -36,7 +36,7 @@ try:
     from .ai_listing_pipeline import AIListingError, _output_text, build_responses_request, call_responses_api, generate_quality_checked_proposal
     from .pricing_intelligence import apply_inventory_rule, collect_competitor_pricing, profit_methodology
     from .store_management import authorization_url, complete_authorization, save_oauth_configuration, save_store_preferences, set_active_store, store_status
-    from .publish_service import PublishError, build_publish_preview, publish_draft, refresh_publish_record, select_category_candidate, validate_publish_skus
+    from .publish_service import PublishError, build_publish_preview, publish_draft, refresh_publish_record, select_category_candidate, validate_publish_skus, _sku_rows, _gallery_for_sku
 except ImportError:
     from mercadolibre_client import MercadoLibreClient, MercadoLibreCategoryClient, MercadoLibreAPIError, category_preflight, write_json
     from source_intake import IntakeError, save_collection_and_enqueue
@@ -47,7 +47,7 @@ except ImportError:
     from ai_listing_pipeline import AIListingError, _output_text, build_responses_request, call_responses_api, generate_quality_checked_proposal
     from pricing_intelligence import apply_inventory_rule, collect_competitor_pricing, profit_methodology
     from store_management import authorization_url, complete_authorization, save_oauth_configuration, save_store_preferences, set_active_store, store_status
-    from publish_service import PublishError, build_publish_preview, publish_draft, refresh_publish_record, select_category_candidate, validate_publish_skus
+    from publish_service import PublishError, build_publish_preview, publish_draft, refresh_publish_record, select_category_candidate, validate_publish_skus, _sku_rows, _gallery_for_sku
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,6 +120,24 @@ def publish_preflight_issues(draft: dict[str, Any]) -> list[str]:
             issues.append(f"站点 {row.get('site_id') or '-'} 缺少价格或净收益")
     for sku in validate_publish_skus(draft):
         issues.extend(f"SKU {sku['seller_sku'] or sku['sku_id']}：{message}" for message in sku["issues"])
+    sku_rows = _sku_rows(draft)
+    for index, sku in enumerate(sku_rows, 1):
+        sku_id = str(sku.get("sku_id") or f"sku-{index}")
+        gallery = _gallery_for_sku(draft, sku_id)
+        # This is the gallery actually submitted for this SKU. Human review is
+        # confirmed once in the final publish dialog, not through legacy flags.
+        selected = {str(item.get("local_file") or item.get("remote_url") or "").strip()
+                    for item in gallery if isinstance(item, dict) and item.get("review_status") != "REJECTED"}
+        selected.discard("")
+        if any(isinstance(item, dict) and item.get("review_status") == "REJECTED" for item in gallery):
+            issues.append(f"SKU {sku.get('seller_sku') or sku_id}：上架图库仍包含已否决图片，请移出后再发布")
+        if len(selected) < 3:
+            issues.append(f"SKU {sku.get('seller_sku') or sku_id}：上架图库至少需要 3 张不同图片，当前已配置 {len(selected)} 张；请在商品编辑页补齐")
+    attributes = {str(row.get("id") or ""): row for row in payload.get("attributes") or [] if isinstance(row, dict)}
+    for attr_id, label in (("BRAND", "品牌"), ("MODEL", "型号")):
+        row = attributes.get(attr_id)
+        if row is not None and not (str(row.get("value_id") or "").strip() or str(row.get("value_name") or "").strip()):
+            issues.append(f"{label}未填写；须依据商品或供应商证据填写，不得猜测")
     return issues
 
 
@@ -176,6 +194,14 @@ def list_drafts(drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) -> list[dict[s
         proposal_path = root / "ai_outputs" / f"{path.stem}-proposal.json"
         proposal_record = read_json(proposal_path) if proposal_path.is_file() else {}
         listing_title = (proposal_record.get("proposal") or proposal_record).get("title") or payload.get("title")
+        # Visible intake-only blockers; this does not enqueue or grant approval.
+        if evidence.get('source_kind') == 'zying_detail':
+            detail = evidence.get('zying_detail') or {}
+            reasons = [r['reason'] for r in detail.get('blocking_reasons') or []]
+            display_errors = list(dict.fromkeys(reasons + display_errors))
+            if reasons:
+                display_stage = 'BLOCKED_EVIDENCE'
+                item['next_action'] = '；'.join(reasons)
         if review_record and review_record.get("approved") is True and publish_status == "pending":
             display_stage = "READY_TO_PUBLISH"
         rows.append(
@@ -222,7 +248,19 @@ def list_drafts(drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) -> list[dict[s
                 "publish_variants": publish_record.get("variants") or [],
             }
         )
-    return rows
+        if evidence.get('source_kind') == 'zying_detail':
+            rows[-1]['sku_count'] = len(evidence.get('sku_details') or [])
+            rows[-1]['zying_profit_reference'] = evidence.get('zying_profit_reference') or {}
+            rows[-1]['offer_candidates_1688'] = (evidence.get('source_offer') or {}).get('dom_summary')
+            from .pricing_result_v3 import contribution
+            rows[-1]['project_contribution']=contribution(root,draft)
+            rows[-1]['zying_item_id']=evidence.get('source_product_id')
+            rows[-1]['zying_captured_at']=(evidence.get('zying_detail') or {}).get('captured_at')
+            rows[-1]['thumbnail_mode'] = 'REMOTE_URL_ONLY'
+            rows[-1]['input_requests'] = (evidence.get('zying_detail') or {}).get('input_requests') or []
+            rows[-1]['blocking_reasons'] = (evidence.get('zying_detail') or {}).get('blocking_reasons') or []
+    from .zying_detail_v3 import collapse_rows
+    return collapse_rows(rows)
 
 
 def draft_ai_log(name: str, drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) -> list[dict[str, Any]]:
@@ -251,9 +289,8 @@ def draft_ai_log(name: str, drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) ->
 def _save_full_job(path: Path, job: dict[str, Any], **changes: Any) -> None:
     job.update(changes)
     job["updated_at"] = datetime.now(timezone.utc).isoformat()
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    from .atomic_json_v3 import write
+    write(path,job)
 
 
 def _wait_child_job(full_path: Path, job: dict[str, Any], child_path: Path, start: int, end: int, label: str) -> None:
@@ -285,7 +322,7 @@ def _prepare_multi_sku_ai_workflow(draft: dict[str, Any]) -> dict[str, Any]:
     evidence["current_pricing_sku_id"] = str(selected["sku_id"])
     payload = draft.setdefault("payload", {})
     payload["seller_sku"] = str(selected.get("seller_sku") or payload.get("seller_sku") or "")
-    payload["available_quantity"] = int(selected.get("available_quantity") or 1000)
+    payload["available_quantity"] = int(selected.get("available_quantity") or 200)
     pack = selected.get("package") if isinstance(selected.get("package"), dict) else {}
     if pack.get("weight_g") is not None:
         evidence["packed_weight"] = {"value": pack["weight_g"], "unit": "g", "status": "SUPPLIER_PACKAGING_INFO"}
@@ -314,9 +351,19 @@ def _apply_ai_content_and_attributes(path: Path, root: Path, full_path: Path, jo
     vision = get_runtime_role(root, "vision")
     _save_full_job(full_path, job, stage="生成公共商品文案", progress=10, message="正在生成公共标题和描述；不会把各 SKU 的库存、价格或规格混入文案")
     model_config = {"base_url": vision["base_url"], "api_key_env": "YOYOU_VISION_API_KEY", "model": vision["model"], "_api_key": vision["api_key"]}
-    proposal, response, quality_retries = generate_quality_checked_proposal(model_config, draft, vision["model"])
     proposal_path = root / "ai_outputs" / f"{path.stem}-proposal.json"
-    proposal_record = {"status": "AI_PROPOSAL_REQUIRES_HUMAN_REVIEW", "source_draft": path.name, "model": vision["model"], "proposal": proposal, "response_id": response.get("id"), "usage": response.get("usage"), "quality_retries": quality_retries, "created_at": datetime.now(timezone.utc).isoformat(), "human_approved": False}
+    from .copy_artifact_v3 import signature as copy_signature,load as cached_copy
+    from .ai_listing_pipeline import proposal_quality_issues
+    old_proposal = read_json(proposal_path) if proposal_path.is_file() else {}
+    proposal = cached_copy(old_proposal,draft,vision['model'],proposal_quality_issues)
+    if proposal:
+        response={'model':vision['model'],'provider':'local','paid_api_used':False,'vision_performed':False,'usage':{},'id':old_proposal.get('response_id')}
+        quality_retries=0
+        _save_full_job(full_path,job,stage='复用已验证文案',progress=20,message='事实和提示词未变；仅重做后续失败或变更步骤')
+    else:
+        proposal, response, quality_retries = generate_quality_checked_proposal(model_config, draft, vision["model"])
+    proposal_record = {"status": "AI_PROPOSAL_REQUIRES_HUMAN_REVIEW", "source_draft": path.name, "model": response.get("model", vision["model"]), "provider": response.get("provider"), "paid_api_used": response.get("paid_api_used"), "vision_performed": response.get("vision_performed"), "proposal": proposal, "response_id": response.get("id"), "usage": response.get("usage"), "quality_retries": quality_retries, "created_at": datetime.now(timezone.utc).isoformat(), "human_approved": False}
+    proposal_record['copy_signature']=copy_signature(draft,vision['model'])
     write_json(proposal_path, proposal_record)
     versions = root / "draft_versions"
     versions.mkdir(parents=True, exist_ok=True)
@@ -327,7 +374,8 @@ def _apply_ai_content_and_attributes(path: Path, root: Path, full_path: Path, jo
     if not locks.get("title"):
         payload["title"] = _clean_text(proposal.get("title"), 60) or payload.get("title")
         payload["family_name"] = _clean_text(proposal.get("family_name"), 60) or payload.get("family_name")
-    payload["description"] = _clean_text(proposal.get("description"), 5000) or payload.get("description")
+    if not locks.get("description"):
+        payload["description"] = _clean_text(proposal.get("description"), 5000) or payload.get("description")
     localized_titles = {
         str(row.get("site_id") or "").upper(): _clean_text(row.get("title"), 60)
         for row in proposal.get("site_titles") or []
@@ -339,45 +387,82 @@ def _apply_ai_content_and_attributes(path: Path, root: Path, full_path: Path, jo
             payload["sites_to_sell"][index] = raw
         site_id = str(raw.get("site_id") or "").upper()
         current_site_title = str(raw.get("title") or "").strip()
-        if localized_titles.get(site_id) and (not current_site_title or current_site_title == previous_title):
+        if not locks.get("title") and localized_titles.get(site_id) and (not current_site_title or current_site_title == previous_title):
             raw["title"] = localized_titles[site_id]
+
+    from .quality_closeout import sync_localized_titles
+    sync_localized_titles(draft, localized_titles, bool(locks.get('title')))
 
     _save_full_job(full_path, job, stage="匹配类目与必填属性", progress=25, message="正在查询美客多官方类目")
     current_category = str(payload.get("category_id") or "").upper()
     site = next((prefix for prefix in ("CBT", "MLM", "MLB", "MLC", "MLA", "MCO") if current_category.startswith(prefix)), "CBT")
     category_client = MercadoLibreCategoryClient()
     if not payload.get("category_id"):
-        candidates = category_client.domain_discovery(site, payload.get("title") or payload.get("family_name") or "")
-        if not candidates:
-            raise EditorError("官方类目预测没有返回结果")
-        payload["category_id"] = candidates[0].get("category_id")
-        draft.setdefault("evidence", {})["category_suggestion"] = {"site_id": site, "selected": candidates[0], "alternatives": candidates[1:5], "status": "AI_ASSISTED_REQUIRES_HUMAN_REVIEW"}
-    preflight = query_official_category(str(payload["category_id"]), root, category_client)
+        discovered = discover_official_category(payload.get("title") or payload.get("family_name") or "",site,root=root,client=category_client,draft=draft)
+        payload["category_id"] = discovered['selected']['category_id']
+        draft.setdefault("evidence", {})["category_suggestion"] = {"site_id": site, "selected": discovered['selected'], "alternatives": (discovered.get('candidates') or [])[:5], "status": "AI_ASSISTED_REQUIRES_HUMAN_REVIEW"}
+    snapshot = (draft.get('evidence') or {}).get('official_category_snapshot') or {}
+    preflight = snapshot if snapshot.get('category_id') == str(payload['category_id']) and snapshot.get('query_source') == 'MERCADOLIBRE_OFFICIAL_API_LIVE' else query_official_category(str(payload["category_id"]), root, category_client)
     if multi.get("mode") == "MULTI_SKU":
         allowed = int((preflight.get("settings") or {}).get("max_variations_allowed") or 0)
         count = len(multi.get("items") or [])
         multi["public_content"] = "READY_FOR_HUMAN_REVIEW"
         multi["category_and_attributes"] = "READY_FOR_HUMAN_REVIEW"
         multi["publish_mode"] = "VARIATION_REQUEST_NOT_IMPLEMENTED" if allowed >= count else "SINGLE_CURRENT_SKU_ONLY"
-    official_attributes = preflight.get("all_attributes") or preflight.get("required_attributes") or []
-    if official_attributes:
-        attribute_role = get_runtime_role(root, "attributes")
-        schema = {"type": "object", "additionalProperties": False, "properties": {"attributes": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {"id": {"type": "string"}, "value_id": {"type": ["string", "null"]}, "value_name": {"type": "string"}}, "required": ["id", "value_id", "value_name"]}}, "unresolved": {"type": "array", "items": {"type": "string"}}}, "required": ["attributes", "unresolved"]}
-        context = {"proposal": proposal, "supplier": (draft.get("evidence") or {}).get("supplier_page") or {}, "official_attributes": official_attributes, "existing_attributes": payload.get("attributes") or []}
-        request_body = {"model": attribute_role["model"], "store": False, "instructions": "Fill evidence-supported Mercado Libre official category attributes, including required and optional fields. Never invent brand, model, compatibility, GTIN, material, dimensions or performance. Return an empty value and add the field to unresolved when evidence is absent.", "input": json.dumps(context, ensure_ascii=False), "text": {"format": {"type": "json_schema", "name": "category_attributes", "strict": True, "schema": schema}}}
-        attribute_response = call_responses_api({"base_url": attribute_role["base_url"], "api_key_env": "YOYOU_ATTRIBUTES_API_KEY", "model": attribute_role["model"], "_api_key": attribute_role["api_key"]}, request_body)
-        result = json.loads(_output_text(attribute_response))
-        allowed = {str(row.get("id")) for row in official_attributes}
-        existing = {str(row.get("id")): row for row in payload.get("attributes") or [] if isinstance(row, dict) and row.get("id")}
-        for row in result.get("attributes") or []:
-            if str(row.get("id")) in allowed and (row.get("value_name") or row.get("value_id")):
-                existing[str(row["id"])] = {"id": str(row["id"]), "value_id": row.get("value_id"), "value_name": _clean_text(row.get("value_name"), 500)}
-        payload["attributes"] = list(existing.values())
-        draft.setdefault("evidence", {})["attribute_completion"] = {"status": "AI_ASSISTED_REQUIRES_HUMAN_REVIEW", "unresolved": result.get("unresolved") or [], "category_id": payload["category_id"]}
+    refresh_category_attributes(draft,root,proposal)
     draft["human_approved"] = False
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def refresh_category_attributes(draft, root, proposal=None):
+    """Repair category-dependent attributes while retaining validated listing copy."""
+    payload=draft.setdefault('payload',{});preflight=(draft.get('evidence') or {}).get('official_category_snapshot') or {}
+    if preflight.get('category_id')!=payload.get('category_id'):
+        preflight=query_official_category(payload['category_id'],root)
+        draft.setdefault('evidence',{})['official_category_snapshot']=preflight
+    proposal=proposal or {}
+    official_attributes = preflight.get("all_attributes") or preflight.get("required_attributes") or []
+    if official_attributes:
+        attribute_role = get_runtime_role(root, "attributes")
+        schema = {"type": "object", "additionalProperties": False, "properties": {"attributes": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {"id": {"type": "string"}, "value_id": {"type": ["string", "null"]}, "value_name": {"type": "string"}}, "required": ["id", "value_id", "value_name"]}}, "unresolved": {"type": "array", "items": {"type": "string"}}}, "required": ["attributes", "unresolved"]}
+        supplier=copy.deepcopy((draft.get('evidence') or {}).get('supplier_page') or {})
+        skus=(draft.get('evidence') or {}).get('sku_details') or []
+        selected=next((s for s in skus if str(s.get('sku_id'))==str((draft.get('evidence') or {}).get('current_pricing_sku_id'))),skus[0] if len(skus)==1 else {})
+        if selected:
+            from .model_resolution_v3 import attach_context
+            attach_context(supplier,selected)
+        context = {"proposal": proposal, "supplier": supplier, "official_attributes": official_attributes, "existing_attributes": payload.get("attributes") or []}
+        request_body = {"model": attribute_role["model"], "store": False, "instructions": "Fill evidence-supported Mercado Libre official category attributes, including required and optional fields. Never invent brand, model, compatibility, GTIN, material, dimensions or performance. Return an empty value and add the field to unresolved when evidence is absent.", "input": json.dumps(context, ensure_ascii=False), "text": {"format": {"type": "json_schema", "name": "category_attributes", "strict": True, "schema": schema}}}
+        attribute_response = call_responses_api({"base_url": attribute_role["base_url"], "api_key_env": "YOYOU_ATTRIBUTES_API_KEY", "model": attribute_role["model"], "_api_key": attribute_role["api_key"]}, request_body)
+        result = json.loads(_output_text(attribute_response))
+        allowed = {str(row.get("id")) for row in official_attributes}
+        from .attribute_context_v3 import editable,valid_value,source_value_supported,normalize_enum
+        definitions={str(a.get('id')):a for a in official_attributes}
+        confirmed_sources=(draft.get('edit_metadata') or {}).get('attribute_sources') or {}
+        existing = {str(row.get("id")): row for row in payload.get("attributes") or [] if isinstance(row, dict) and row.get("id") and str(row['id']) in definitions and editable(definitions[str(row['id'])]) and valid_value(row,definitions[str(row['id'])]) and (source_value_supported(row,context['supplier']) or confirmed_sources.get(row['id']) in {'human_confirmed','supplier_confirmed','manual','user_confirmed'})}
+        for row in result.get("attributes") or []:
+            if str(row.get("id")) in allowed and (row.get("value_name") or row.get("value_id")) and confirmed_sources.get(row.get('id')) not in {'human_confirmed','supplier_confirmed','manual','user_confirmed'}:
+                row=normalize_enum(row,definitions[str(row['id'])])
+                if editable(definitions[str(row['id'])]) and valid_value(row,definitions[str(row['id'])]) and source_value_supported(row,context['supplier']):
+                    existing[str(row["id"])] = {"id": str(row["id"]), "value_id": row.get("value_id"), "value_name": _clean_text(row.get("value_name"), 500)}
+        from .round2_evidence_v3 import candidate_attributes
+        literal = candidate_attributes(context['supplier'], official_attributes)
+        for row in literal:
+            if confirmed_sources.get(row['id']) not in {'human_confirmed','supplier_confirmed','manual','user_confirmed'}:
+                existing[row['id']] = row
+        result['unresolved'] = [key for key in result.get('unresolved') or [] if key not in existing]
+        from .model_resolution_v3 import resolve as resolve_model
+        resolution=resolve_model(context['supplier'])
+        derived=[r['id'] for r in literal if r['id']=='MODEL' and resolution.get('status')=='CANDIDATE']
+        draft.setdefault('evidence', {})['supplier_attribute_recovery'] = {'method': 'literal_cells_and_traceable_candidates', 'fields': [r['id'] for r in literal], 'inferred': bool(derived), 'derived_fields':derived}
+        draft['evidence']['attribute_origins']={r['id']:('USER_BRAND_POLICY' if r['id']=='BRAND' and (context['supplier'].get('user_attribute_policy') or {}).get('BRAND') else 'SUPPLIER_CAPTURE') for r in literal}
+        if any(r['id']=='MODEL' for r in literal):draft['evidence']['attribute_origins']['MODEL']=resolution['origin']
+        draft['evidence']['model_resolution']=resolution
+        payload["attributes"] = list(existing.values())
+        draft.setdefault("evidence", {})["attribute_completion"] = {"status": "AI_ASSISTED_REQUIRES_HUMAN_REVIEW", "unresolved": result.get("unresolved") or [], "category_id": payload["category_id"], "required_ids": [r.get("id") for r in preflight.get("required_attributes") or [] if r.get("id")]}
+    return draft
 
 
 def refresh_competitor_pricing(path: Path, root: Path = ROOT) -> dict[str, Any]:
@@ -402,19 +487,24 @@ def _run_full_ai_flow(path: Path, root: Path, full_path: Path) -> None:
         errors, _warnings = validate(draft)
         if errors:
             raise EditorError("采集资料未齐：" + "；".join(errors))
+        # Classic automatic entry also uses originals only; manual generation APIs
+        # remain explicit and independent of this chain.
+        from .source_image_screening_v3 import screen
+        from .source_image_policy_v3 import shortage_items
+        from .auto_processing_v3 import input_requests
+        skus = (draft.get('evidence') or {}).get('sku_details') or []
+        if not skus:
+            raise EditorError('采集记录没有 SKU，需重新采集明确规格')
+        reports = screen(root, draft, skus)
+        path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+        blocked = shortage_items(reports)
+        if blocked:
+            _save_full_job(full_path, job, status='done', completion_state='NEEDS_INPUT',
+                           stage='合格原图不足，已跳过', progress=100, items=blocked,
+                           input_requests=input_requests(blocked), paid_image_calls=0, error=None)
+            return
         _apply_ai_content_and_attributes(path, root, full_path, job)
-        _save_full_job(full_path, job, stage="当前核价 SKU：竞品与利润", progress=35, message="仅用当前核价 SKU 的采购价、包装重尺读取竞品并计算 10%–30% 利润区间")
         refresh_competitor_pricing(path, root)
-        settings = get_public_settings(root)
-        language = str((settings.get("strategy") or {}).get("image_language") or "auto")
-        _save_full_job(full_path, job, stage="生成公共商品图", progress=40, message="正在提交3张公共商品图")
-        start_image_generation(path.name, language, None, path.parent, root)
-        _wait_child_job(full_path, job, root / "jobs" / f"{path.stem}-image-job.json", 40, 70, "生成公共商品图")
-        skus = (((read_json(path).get("evidence") or {}).get("supplier_page") or {}).get("skus") or [])
-        if len(skus) > 1 and (settings.get("strategy") or {}).get("generate_per_sku") is not False:
-            _save_full_job(full_path, job, stage="生成各 SKU 专属图", progress=70, message=f"正在按各 SKU 自己的专属原图提交 {len(skus)} 张专属图")
-            start_sku_image_generation(path.name, path.parent, root)
-            _wait_child_job(full_path, job, root / "jobs" / f"{path.stem}-sku-image-job.json", 70, 98, "生成各 SKU 专属图")
         final_draft = read_json(path)
         final_multi = ((final_draft.get("evidence") or {}).get("multi_sku_ai") or {})
         if final_multi.get("mode") == "MULTI_SKU":
@@ -423,7 +513,7 @@ def _run_full_ai_flow(path: Path, root: Path, full_path: Path) -> None:
             for item in final_multi.get("items") or []:
                 item["images"] = "READY_FOR_HUMAN_REVIEW"
             path.write_text(json.dumps(final_draft, ensure_ascii=False, indent=2), encoding="utf-8")
-        _save_full_job(full_path, job, status="done", stage="多 SKU 待审核", progress=100, message="公共文案、当前核价 SKU 定价和各 SKU 图片已分开处理，等待人工审核", error=None)
+        _save_full_job(full_path, job, status="done", stage="处理完成，已进入发布中心", progress=100, message="公共文案、当前核价 SKU 定价和各 SKU 图片已保存；发布资料检查在发布中心完成", error=None)
     except Exception as exc:
         latest = read_json(full_path)
         if latest.get("status") == "paused":
@@ -434,11 +524,13 @@ def _run_full_ai_flow(path: Path, root: Path, full_path: Path) -> None:
 def start_full_ai_flow(name: str, drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) -> dict[str, Any]:
     path = _draft_path(name, drafts_dir)
     settings = get_public_settings(root)
-    missing = [row["label"] for row in settings["roles"].values() if not row.get("has_key")]
+    missing = [row["label"] for role, row in settings["roles"].items() if role != 'images' and row.get("requires_key", True) and not row.get("has_key")]
     if missing:
         raise EditorError("以下 API 尚未授权：" + "、".join(missing))
     skus = ((((read_json(path).get("evidence") or {}).get("supplier_page") or {}).get("skus") or []))
-    image_count = 3 + (len(skus) if len(skus) > 1 and settings["strategy"].get("generate_per_sku") else 0)
+    from .source_image_policy_v3 import policy as source_image_policy
+    source_image_policy(root)
+    image_count = 0
     full_path = root / "jobs" / f"{path.stem}-full-ai-job.json"
     if full_path.is_file() and read_json(full_path).get("status") in {"queued", "running"}:
         raise EditorError("完整 AI 流程正在运行")
@@ -448,6 +540,24 @@ def start_full_ai_flow(name: str, drafts_dir: Path = DRAFTS_DIR, root: Path = RO
     _save_full_job(full_path, job)
     Thread(target=_run_full_ai_flow, args=(path, root, full_path), daemon=True).start()
     return job
+
+
+def _check_recycle_available(path: Path, root: Path) -> None:
+    """Keep in-flight workers and unresolved platform submissions recoverable."""
+    active = {"queued", "running", "generating", "submitting", "pending_confirmation"}
+    candidates = list((root / "jobs").glob(f"{path.stem}-*.json"))
+    candidates += list((root / "data/v3/publishing/records").glob(f"*/{path.stem}.json"))
+    candidates += [root / "data/v3/auto-processing" / path.name,
+                   root / "data/v3/product-audit" / path.name.replace("-draft.json", "-audit.json"),
+                   root / "data/publish_records" / f"{path.stem}.json"]
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        state = read_json(candidate)
+        sites = [site for variant in state.get("variants") or [] for site in variant.get("sites") or []]
+        queue_pending = candidate.parent == root / "data/v3/auto-processing" and state.get("status") == "pending"
+        if queue_pending or state.get("status") in active or any(site.get("status") in active for site in sites):
+            raise EditorError("商品有排队、执行或待回查任务，暂不能删除；请先完成、暂停或核实任务：" + path.name)
 
 
 def batch_draft_action(action: str, names: list[Any], drafts_dir: Path = DRAFTS_DIR, root: Path = ROOT) -> dict[str, Any]:
@@ -496,15 +606,22 @@ def batch_draft_action(action: str, names: list[Any], drafts_dir: Path = DRAFTS_
             source.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
             results.append({"name": name, "status": "ready_for_human_review", "backup": str(backup)})
     elif action == "recycle":
-        recycle_dir = root / "recycle_bin" / datetime.now().strftime("%Y%m%d")
-        recycle_dir.mkdir(parents=True, exist_ok=True)
-        for name in clean_names:
-            source = _draft_path(name, drafts_dir)
-            destination = recycle_dir / source.name
-            if destination.exists():
-                destination = recycle_dir / f"{source.stem}-{datetime.now().strftime('%H%M%S%f')}.json"
-            source.replace(destination)
-            results.append({"name": name, "status": "recycled", "restore_path": str(destination)})
+        from . import sku_processing_v3, target_publish_v3
+        with target_publish_v3.LOCK, sku_processing_v3.START_LOCK:
+            sources = [_draft_path(name, drafts_dir) for name in dict.fromkeys(clean_names)]
+            snapshots = {path: path.read_bytes() for path in sources}
+            for source in sources:
+                _check_recycle_available(source, root)
+            recycle_dir = root / "recycle_bin" / datetime.now().strftime("%Y%m%d")
+            recycle_dir.mkdir(parents=True, exist_ok=True)
+            for source in sources:
+                if source.read_bytes() != snapshots[source]:
+                    raise EditorError("商品已被其他操作修改，请刷新后再删除：" + source.name)
+                destination = recycle_dir / source.name
+                if destination.exists():
+                    destination = recycle_dir / f"{source.stem}-{datetime.now().strftime('%H%M%S%f')}.json"
+                source.replace(destination)
+                results.append({"name": source.name, "status": "recycled", "restore_path": str(destination)})
     else:
         raise EditorError("不支持的批量操作。")
     return {"action": action, "results": results}
@@ -689,7 +806,7 @@ def update_review_sku_galleries(
     review = evidence.setdefault("image_review", {})
     known_skus = {
         str(row.get("sku_id") or ""): str(row.get("variant") or "")
-        for row in ((evidence.get("supplier_page") or {}).get("skus") or []) if isinstance(row, dict)
+        for row in (evidence.get('sku_details') or (evidence.get("supplier_page") or {}).get("skus") or []) if isinstance(row, dict)
     }
     allowed_shared = {
         str(row.get("local_file") or row.get("remote_url") or "")
@@ -905,12 +1022,27 @@ def discover_official_category(
     category_id: str = "",
     root: Path = ROOT,
     client: MercadoLibreCategoryClient | None = None,
+    draft: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Find a Mercado Libre category, then fetch its current official attributes."""
     site = str(site_id or "CBT").strip().upper()
     if site not in {"CBT", "MLM", "MLB", "MLC", "MLA", "MCO"}:
         raise EditorError("暂不支持该美客多站点")
     api = client or MercadoLibreCategoryClient()
+    if site=='CBT' and draft is None and not category_id and re.search(r'[\u3400-\u9fff]',str(title)):
+        raise EditorError('中文采集标题不能直接用于官方预测；请从商品上下文执行类目匹配')
+    if site == 'CBT' and not category_id and draft is None:
+        draft={'payload':{'title':title},'evidence':{'source_title':title}}
+    if site == 'CBT' and draft is not None:
+        from .category_resolution_v3 import resolve,semantic_issues
+        if category_id:
+            selected=query_official_category(category_id,root,api)
+            if semantic_issues(draft,selected):raise EditorError('所选类目与原商品用途冲突；请重新匹配类目')
+            return {'site_id':site,'selected':selected,'candidates':[]}
+        try:decision=resolve(root,draft,api)
+        except ValueError as exc:raise EditorError(str(exc)) from exc
+        selected=query_official_category(decision['selected']['category_id'],root,api)
+        return {'site_id':site,'selected':selected,'candidates':decision['candidates'],'classification_review':{k:v for k,v in decision.items() if k!='selected'}}
     clean_category = str(category_id or "").strip().upper()
     candidates: list[dict[str, Any]] = []
     if clean_category:
@@ -969,7 +1101,7 @@ def browse_official_categories(
                     if not category_id:
                         continue
                     detail = api.category(category_id)
-                    children.append({"id": category_id, "name": detail.get("name") or row.get("category_name"), "path_from_root": detail.get("path_from_root") or [], "selectable": True})
+                    children.append({"id": category_id, "name": detail.get("name") or row.get("category_name"), "path_from_root": detail.get("path_from_root") or [], "selectable": detail.get("children_categories") == []})
                 suggested = True
         path: list[dict[str, Any]] = []
     else:
@@ -981,7 +1113,9 @@ def browse_official_categories(
         "parent_id": parent or None,
         "path_from_root": [{"id": row.get("id"), "name": row.get("name")} for row in path],
         "children": [{"id": row.get("id"), "name": row.get("name"), "total_items_in_this_category": row.get("total_items_in_this_category"), "path_from_root": row.get("path_from_root") or [], "selectable": row.get("selectable") is True} for row in children],
-        "is_leaf": bool(parent and not children),
+        "status": "CATEGORY_MAPPING_PENDING" if not parent and not children else "OK",
+        "message": "官方未返回推荐分类；请缓存列表子类目后匹配，或填入已核验ID" if not parent and not children else "",
+        "is_leaf": bool(parent and category.get("children_categories") == []),
         "suggested": suggested if not parent else False,
     }
 
@@ -1031,9 +1165,9 @@ def suggest_required_attributes(
     path = _draft_path(name, drafts_dir)
     draft = read_json(path)
     discovery_title = title
-    if not str(category_id or "").strip() and re.search(r"[\u3400-\u9fff]", str(title or "")):
+    if site_id!='CBT' and not str(category_id or "").strip() and re.search(r"[\u3400-\u9fff]", str(title or "")):
         discovery_title = _category_search_query(draft, title, site_id, root)
-    found = discover_official_category(discovery_title, site_id, category_id, root)
+    found = discover_official_category(discovery_title, site_id, category_id, root,draft=draft)
     found["internal_category_query"] = discovery_title if discovery_title != title else None
     category = found["selected"]
     official_attributes = category.get("all_attributes") or category.get("required_attributes") or []
@@ -1257,7 +1391,7 @@ def create_edited_version(
             "sku_id": sku_id, "spec_id": _clean_text(row.get("spec_id"), 120), "variant": _clean_text(row.get("variant"), 300),
             "seller_sku": _clean_text(row.get("seller_sku"), 120), "purchase_cost_cny": _number(row.get("purchase_cost_cny")),
             "listing_price_usd": _number(row.get("listing_price_usd")), "target_net_proceeds_usd": _number(row.get("target_net_proceeds_usd")),
-            "available_quantity": int(_number(row.get("available_quantity")) or 0) or 1000,
+            "available_quantity": int(_number(row.get("available_quantity")) or 0) or 200,
             "inventory_source": _clean_text(row.get("inventory_source"), 80),
             "package": {key: _number(package_row.get(key)) for key in ("weight_g", "length_cm", "width_cm", "height_cm")},
             "barcode_type": _clean_text(row.get("barcode_type"), 20) or "NO_GTIN", "gtin": _clean_text(row.get("gtin"), 120),
@@ -1281,10 +1415,42 @@ def create_edited_version(
             ][:10],
         })
     evidence["sku_details"] = clean_sku_details
+    prior_skus = {str(s.get('sku_id')): s for s in (source.get('evidence') or {}).get('sku_details') or []}
+    sku_edits = changes.get('sku_content_edits') if isinstance(changes.get('sku_content_edits'), dict) else {}
+    for sku in clean_sku_details:
+        prior = prior_skus.get(str(sku['sku_id'])) or {}
+        old_pack = prior.get('package') or {}
+        if old_pack.get('status') and all(sku['package'].get(k) == old_pack.get(k) for k in ('weight_g', 'length_cm', 'width_cm', 'height_cm')):
+            sku['package'].update({k:copy.deepcopy(old_pack[k]) for k in ('status','field_status','evidence','source_method','scope','sales_unit_signature') if k in old_pack})
+        for key in ('ai_content', 'ai_processing','supplier_facts','product_measurements','supplier_weight_observation','user_attribute_policy','human_field_locks','human_attribute_locks','autopricing_by_site','market_reference','previous_valid_ai_content','procurement'):
+            if key in prior: sku[key] = copy.deepcopy(prior[key])
+        per_sku = sku_edits.get(str(sku['sku_id']))
+        if sku.get('ai_content') and isinstance(per_sku, dict):
+            for key, limit in (('description', 10000), ('category_id', 50)):
+                if key in per_sku:
+                    value=_clean_text(per_sku[key], limit)
+                    if value!=(prior.get('ai_content') or {}).get(key):sku.setdefault('human_field_locks',{})[key]=True
+                    sku['ai_content'][key] = value
+            if isinstance(per_sku.get('attributes'), list):
+                sku['ai_content']['attributes'] = [
+                    {'id': _clean_text(a.get('id'),80), 'value_id': _clean_text(a.get('value_id'),120) or None,
+                     'value_name': _clean_text(a.get('value_name'),500)}
+                    for a in per_sku['attributes'][:120] if isinstance(a,dict) and _clean_text(a.get('id'),80)]
+                previous={a['id']:a for a in (prior.get('ai_content') or {}).get('attributes') or []}
+                latest={a['id']:a for a in sku['ai_content']['attributes']}
+                for key in previous.keys()|latest.keys():
+                    if previous.get(key)!=latest.get(key):sku.setdefault('human_attribute_locks',{})[key]=copy.deepcopy(latest.get(key))
+        elif str(sku['sku_id']) == str(evidence.get('current_pricing_sku_id')) and sku.get('ai_content'):
+            # Older editors only submit common fields. An unchanged first-SKU form cannot overwrite another SKU.
+            for key in ('description', 'attributes', 'category_id'):
+                if key in fields and payload.get(key) != (source.get('payload') or {}).get(key):
+                    sku['ai_content'][key] = copy.deepcopy(payload.get(key))
     evidence["images_human_reviewed"] = changes.get("images_human_reviewed") is True
+    from .supplier_completion_v3 import apply as apply_supplier_completion
+    apply_supplier_completion(edited, changes)
 
     pricing = changes.get("pricing") if isinstance(changes.get("pricing"), dict) else {}
-    edited["pricing_plan"] = {
+    edited["pricing_plan"] = {**copy.deepcopy(source.get('pricing_plan') or {}),
         "mode": "net_proceeds",
         "purchase_cost_cny": _number(pricing.get("purchase_cost_cny")),
         "domestic_shipping_cny": _number(pricing.get("domestic_shipping_cny")),
@@ -1301,10 +1467,24 @@ def create_edited_version(
             edited["pricing_plan"]["target_net_proceeds_usd"] = selected_sku["target_net_proceeds_usd"]
         if selected_sku.get("site_pricing"):
             payload["sites_to_sell"] = selected_sku["site_pricing"]
-    profit_guidance = profit_methodology(edited["pricing_plan"])
+    # Saving copy or image choices must not replace a complete forwarder budget
+    # with the older, less complete generic cost scenario.
+    previous_plan = source.get('pricing_plan') or {}
+    for key in ('purchase_cost_cny','domestic_shipping_cny','exchange_rate_cny_per_usd',
+                'packaging_cost_usd','cross_border_freight_usd','other_cost_usd','target_net_proceeds_usd'):
+        if key not in pricing:
+            if key in previous_plan:edited['pricing_plan'][key]=copy.deepcopy(previous_plan[key])
+            else:edited['pricing_plan'].pop(key,None)
+    if selected_sku and selected_sku.get('target_net_proceeds_usd') is not None:
+        edited['pricing_plan']['target_net_proceeds_usd']=selected_sku['target_net_proceeds_usd']
+    preserved_budget = (previous_plan.get('profit_guidance') or {}).get('status') == 'BUDGET_ESTIMATE'
+    profit_guidance = copy.deepcopy(previous_plan['profit_guidance']) if preserved_budget else profit_methodology(edited["pricing_plan"])
+    if edited['pricing_plan'].get('other_cost_usd') is None:
+        profit_guidance.update(status='REAL_PROFIT_UNVERIFIED',missing_inputs=list(dict.fromkeys((profit_guidance.get('missing_inputs') or [])+['other_cost_usd'])))
+        for key in ('current_target','recommended_net_proceeds_range_usd','preferred_target_net_proceeds_usd','unit_contribution_range_usd'):profit_guidance.pop(key,None)
     edited["pricing_plan"]["profit_guidance"] = profit_guidance
     edited["pricing_plan"]["status"] = profit_guidance["status"]
-    edited["pricing_plan"]["note"] = (
+    if not preserved_budget:edited["pricing_plan"]["note"] = (
         "已按卖家净回款和当前成本生成贡献利润估算；估算值不作为审核硬门槛。"
         if profit_guidance.get("recommended_net_proceeds_range_usd")
         else "核心成本仍有缺项，暂未生成利润区间；该状态不阻止人工审核。"
@@ -1378,6 +1558,13 @@ def create_edited_version(
         edited["edit_metadata"]["manual_review_requested_at"] = prior_metadata["manual_review_requested_at"]
         edited["edit_metadata"]["manual_review_source"] = prior_metadata.get("manual_review_source") or "dashboard_batch"
 
+    if preserved_budget:
+        from .integrated_pricing_v3 import signature
+        if signature(source) != signature(edited):
+            edited['pricing_plan']['status']='STALE'
+            edited['pricing_plan']['profit_guidance']={'status':'STALE','missing_inputs':[],
+                'limitations':'成本、包装或SKU价格已变更；已保存其他编辑，请重新运行利润定价。'}
+
     errors, warnings = validate(edited)
     edited["local_validation"] = {"errors": errors, "warnings": warnings}
     versions_dir.mkdir(parents=True, exist_ok=True)
@@ -1394,11 +1581,50 @@ def save_edited_draft(
     changes: dict[str, Any],
     drafts_dir: Path = DRAFTS_DIR,
     versions_dir: Path = VERSIONS_DIR,
+    *, field_updates=None, zying_capture=None, offer_capture=None,
 ) -> tuple[Path, Path, Path]:
     """Persist editor choices to the working draft while preserving history."""
     source_path = _draft_path(name, drafts_dir)
-    edited_snapshot = create_edited_version(name, changes, drafts_dir, versions_dir)
+    if offer_capture is not None:
+        from .offer_candidates_1688_v3 import evaluate
+        scoped=evaluate(Path(drafts_dir).parent,read_json(source_path),offer_capture)
+        versions_dir.mkdir(parents=True,exist_ok=True)
+        stamp=datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+        edited_snapshot=versions_dir / f'{source_path.stem}-offers-{stamp}.json'
+        from .atomic_json_v3 import write as atomic_write
+        atomic_write(edited_snapshot,scoped)
+    elif zying_capture is not None:
+        from .zying_detail_v3 import merge_draft, refresh_contribution
+        scoped=refresh_contribution(Path(drafts_dir).parent,merge_draft(read_json(source_path),zying_capture))
+        versions_dir.mkdir(parents=True,exist_ok=True)
+        stamp=datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+        edited_snapshot=versions_dir / f'{source_path.stem}-capture-{stamp}.json'
+        from .atomic_json_v3 import write as atomic_write
+        atomic_write(edited_snapshot,scoped)
+    elif field_updates is None:
+        edited_snapshot = create_edited_version(name, changes, drafts_dir, versions_dir)
+    else:
+        from .input_requests_v3 import apply_updates
+        scoped = apply_updates(read_json(source_path), field_updates)
+        if (scoped.get('evidence') or {}).get('source_kind')=='zying_detail':
+            from .zying_detail_v3 import refresh_contribution
+            refresh_contribution(Path(drafts_dir).parent,scoped)
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        edited_snapshot = versions_dir / f"{source_path.stem}-inputs-{stamp}.json"
+        from .atomic_json_v3 import write as atomic_write
+        atomic_write(edited_snapshot, scoped)
     edited = read_json(edited_snapshot)
+    original=read_json(source_path)
+    category_id=(edited.get('payload') or {}).get('category_id')
+    if category_id and category_id!=(original.get('payload') or {}).get('category_id'):
+        from .category_resolution_v3 import apply_category,semantic_issues,VERSION
+        snapshot=query_official_category(category_id,source_path.parent.parent)
+        problems=semantic_issues(edited,snapshot)
+        if problems:raise EditorError('；'.join(problems))
+        apply_category(edited,snapshot,{'version':VERSION,'status':'HUMAN_CATEGORY_SELECTION','category_id':category_id})
+        from .atomic_json_v3 import write as atomic_write
+        atomic_write(edited_snapshot,edited)
     versions_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup = versions_dir / f"{source_path.stem}-before-save-{stamp}.json"
@@ -1424,7 +1650,7 @@ def make_handler(root: Path = ROOT):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            if self.path.startswith("/api/collect") and self.headers.get("Origin") == YOUYOU_EXTENSION_ORIGIN:
+            if self.headers.get("Origin") == YOUYOU_EXTENSION_ORIGIN:
                 self.send_header("Access-Control-Allow-Origin", YOUYOU_EXTENSION_ORIGIN)
                 self.send_header("Vary", "Origin")
             self.end_headers()
@@ -1442,7 +1668,7 @@ def make_handler(root: Path = ROOT):
             self.wfile.write(body)
 
         def do_OPTIONS(self) -> None:  # noqa: N802
-            if self.path != "/api/collect" or self.headers.get("Origin") != YOUYOU_EXTENSION_ORIGIN:
+            if self.headers.get("Origin") != YOUYOU_EXTENSION_ORIGIN:
                 return self._json(403, {"ok": False, "error": "extension_not_allowed"})
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", YOUYOU_EXTENSION_ORIGIN)
@@ -1563,17 +1789,16 @@ def make_handler(root: Path = ROOT):
                 candidate = (assets_dir / relative).resolve()
                 if assets_dir.resolve() not in candidate.parents:
                     return self._json(403, {"ok": False, "error": "forbidden"})
-                content_type = {".png": "image/png", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}.get(candidate.suffix.lower(), "image/jpeg")
+                content_type = "image/png" if candidate.suffix.lower() == ".png" else "image/jpeg"
                 return self._file(candidate, content_type)
             return self._json(404, {"ok": False, "error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            origin = self.headers.get("Origin")
+            origin = str(self.headers.get("Origin") or "")
             local_origins = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"}
-            allowed_origin = {YOUYOU_EXTENSION_ORIGIN} if parsed.path == "/api/collect" else local_origins
-            if origin and origin not in allowed_origin:
-                return self._json(403, {"ok": False, "error": "request_origin_not_allowed"})
+            if origin and origin not in local_origins and not (parsed.path == "/api/collect" and origin == YOUYOU_EXTENSION_ORIGIN):
+                return self._json(403, {"ok": False, "error": "请求来源不正确"})
             if parsed.path == "/api/publish/batch":
                 try:
                     origin = str(self.headers.get("Origin") or "")
@@ -1688,6 +1913,7 @@ def make_handler(root: Path = ROOT):
                         "next_action": result["next_action"],
                         "image_counts": result["image_counts"],
                         "package_ai_status": result["package_ai_status"],
+                        "auto_processing": result.get("auto_processing"),
                     })
                 except (IntakeError, json.JSONDecodeError, UnicodeDecodeError) as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
@@ -1741,8 +1967,8 @@ def make_handler(root: Path = ROOT):
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     value = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-                    if value.get("confirmed") is not True:
-                        raise EditorError("完整 AI 流程会调用文案、属性和生图 API，请确认预计图片数量后再提交。")
+                    if not globals().get('_v3_sku_processing_installed') and value.get("confirmed") is not True:
+                        raise EditorError("旧版完整流程包含生图调用，需先确认；当前本地逐SKU处理应由工作台入口启动。")
                     job = start_full_ai_flow(full_flow_match.group(1), drafts_dir, root)
                     return self._json(202, {"ok": True, "job": job, "publishing_performed": False})
                 except (EditorError, ModelSettingsError, AIListingError, json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
@@ -1751,7 +1977,8 @@ def make_handler(root: Path = ROOT):
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     value = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-                    result = discover_official_category(str(value.get("title") or ""), str(value.get("site_id") or "CBT"), str(value.get("category_id") or ""), root)
+                    current=read_json(_draft_path(category_discovery_match.group(1),drafts_dir))
+                    result = discover_official_category(str(value.get("title") or ""), str(value.get("site_id") or "CBT"), str(value.get("category_id") or ""), root,draft=current)
                     return self._json(200, {"ok": True, **result})
                 except (EditorError, MercadoLibreAPIError, json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
@@ -1794,6 +2021,8 @@ def make_handler(root: Path = ROOT):
                     if length < 0 or length > 100_000:
                         raise EditorError("生图请求大小不正确")
                     value = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                    if value.get("confirmed") is not True:
+                        raise EditorError("AI 生图会消耗额度，请先确认数量和费用后再提交。")
                     job = start_image_generation(
                         image_match.group(1),
                         str(value.get("language") or "none"),

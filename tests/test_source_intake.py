@@ -40,6 +40,16 @@ class SourceIntakeTests(unittest.TestCase):
             "extraction_source": "1688_structured_page_state",
         }
 
+    def test_market_handoff_keeps_only_public_identifiers(self):
+        self.payload["source_url"] += "#youyou_market=MLM3542073229&youyou_task=" + "a" * 32 + "&junk=discard"
+        value = normalize_collection(self.payload)
+        self.assertEqual(value["source_url"], "https://detail.1688.com/offer/856658055965.html")
+        self.assertEqual(value["market_references"], [{"market_item_id": "MLM3542073229", "discovery_task_id": "a" * 32, "match_status": "SPEC_MATCH_UNVERIFIED"}])
+
+    def test_invalid_market_reference_is_not_trusted(self):
+        self.payload["source_url"] += "#youyou_market=javascript:bad&youyou_task=invalid"
+        self.assertEqual(normalize_collection(self.payload)["market_references"], [])
+
     def test_normalizes_visible_supplier_evidence(self):
         result = normalize_collection(self.payload)
         self.assertEqual(result["offer_id"], "856658055965")
@@ -106,16 +116,18 @@ class SourceIntakeTests(unittest.TestCase):
         self.assertEqual(draft["evidence"]["packed_weight"]["status"], "SUPPLIER_PACKAGING_INFO")
         self.assertEqual(draft["evidence"]["packed_dimensions"]["length"], 6)
         self.assertEqual(draft["pricing_plan"]["domestic_shipping_cny"], 7.5)
-        self.assertEqual(draft["payload"]["available_quantity"], 12322)
-        self.assertEqual(draft["evidence"]["supplier_page"]["inventory_source"], "1688_SKU_AVAILABLE_QUANTITY")
+        self.assertEqual(draft["payload"]["available_quantity"], 200)
+        self.assertEqual(draft["evidence"]["sku_details"][0]["available_quantity"], 200)
+        self.assertEqual(draft["evidence"]["sku_details"][0]["supplier_inventory_observed"], 12322)
+        self.assertEqual(draft["evidence"]["supplier_page"]["inventory_source"], "DEFAULT_200_USER_POLICY")
 
-    def test_inventory_defaults_to_1000_when_1688_has_no_stock_value(self):
+    def test_inventory_defaults_to_200_when_1688_has_no_stock_value(self):
         self.payload["skus"] = []
         with tempfile.TemporaryDirectory() as directory:
             draft_path = save_collection_and_enqueue(self.payload, Path(directory))["draft"]
             draft = json.loads(draft_path.read_text(encoding="utf-8"))
-        self.assertEqual(draft["payload"]["available_quantity"], 1000)
-        self.assertEqual(draft["evidence"]["supplier_page"]["inventory_source"], "DEFAULT_1000_WHEN_1688_UNAVAILABLE")
+        self.assertEqual(draft["payload"]["available_quantity"], 200)
+        self.assertEqual(draft["evidence"]["supplier_page"]["inventory_source"], "DEFAULT_200_USER_POLICY")
 
     def test_rejects_login_and_secret_fields(self):
         self.payload["cookies"] = "secret"

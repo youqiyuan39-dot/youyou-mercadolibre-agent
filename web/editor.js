@@ -52,6 +52,7 @@ const categoryBilingualPath = (rows) => {
 
 let selectedName = "";
 let currentDraft = null;
+let familyCategoryId = '';
 let gallery = [];
 let sourceGallery = [];
 let detailGallery = [];
@@ -63,6 +64,9 @@ let collectedSkus = [];
 let skuDetails = [];
 let skuListingGalleries = [];
 let currentSkuId = "";
+let skuContentEdits = {};
+let skuSourceAssignments = [];
+let skuPackageConfirmations = [];
 let imagePollTimer = null;
 let currentCategory = null;
 let categoryHistory = [];
@@ -130,14 +134,21 @@ const attributeNameZh = (attribute) => attributeNamesZh[attribute.id] || attribu
 const isSelfFulfilled = () => currentDraft?.evidence?.market_check?.fulfillment === "自发货";
 
 function updatePricing() {
-  const value = (id) => Number(byId(id).value || 0);
+  const value = (id) => byId(id).value.trim()==='' ? null : Number(byId(id).value);
   const purchase = value("purchaseCost");
   const domestic = value("domesticShipping");
   const rate = value("exchangeRate");
   const usdCosts = value("packagingCost") + value("otherCost");
   const base = rate > 0 ? (purchase + domestic) / rate : 0;
   const target = value("targetNet");
-  byId("estimatedRemainder").value = target > 0 && rate > 0 ? (target - base - usdCosts).toFixed(2) : "资料未齐";
+  const sku=skuDetails.find(s=>text(s.sku_id)===currentSkuId);
+  const budget=sku?.autopricing_by_site?.MLM;
+  const forwarder=budget?.budget?.forwarder_cny ?? currentDraft?.pricing_plan?.profit_guidance?.forwarder_cost?.total_cny;
+  const plan=currentDraft?.pricing_plan||{};
+  const measured=budget?.input_package || (currentSkuId===text(currentDraft?.evidence?.current_pricing_sku_id) ? {weight_g:plan.package_weight_g,length_cm:plan.package_length_cm,width_cm:plan.package_width_cm,height_cm:plan.package_height_cm} : {});
+  const packageMatches=[['weight','weight_g'],['length','length_cm'],['width','width_cm'],['height','height_cm']].every(([id,key])=>measured[key]!=null && value(id)===Number(measured[key]));
+  const complete=['purchaseCost','domesticShipping','exchangeRate','packagingCost','otherCost','targetNet'].every(id=>value(id)!==null);
+  byId("estimatedRemainder").value = complete && packageMatches && target > 0 && rate > 0 && forwarder!=null ? (target - base - usdCosts - Number(forwarder)/rate).toFixed(2) : "资料未齐，待完整预算";
   renderSitePricing();
 }
 
@@ -166,8 +177,10 @@ function renderPricingIntelligence(analysis = {}) {
   for (const site of shipping.sites || []) lines.push(`${site.site_id} 物流：${site.status === "PLATFORM_INCLUDED_IN_LISTING_PRICE" ? "由美客多计入买家售价" : (site.shipping_cost_usd != null ? `${site.shipping_cost_usd} USD` : "待官方报价")}`);
   if (guidance.recommended_net_proceeds_range_usd) {
     lines.push(`建议卖家净回款区间：${guidance.recommended_net_proceeds_range_usd[0]}–${guidance.recommended_net_proceeds_range_usd[1]} USD`);
-    lines.push(`对应单位贡献利润：${guidance.unit_contribution_range_usd[0]}–${guidance.unit_contribution_range_usd[1]} USD，可接受利润率 10%–30%，优先靠近 30%`);
-    if (guidance.current_target) lines.push(`当前 ${guidance.current_target.net_proceeds_usd} USD：贡献利润 ${guidance.current_target.unit_contribution_usd} USD / ${guidance.current_target.margin_pct}%（${guidance.current_target.assessment === "NEAR_30_PERCENT_TARGET" ? "接近 30% 目标" : guidance.current_target.assessment === "ACCEPTABLE" ? "处于可接受区间" : guidance.current_target.assessment === "BELOW_ACCEPTABLE" ? "低于 10%" : "高于 30% 偏好线"}）`);
+    lines.push(`历史成本情景的净回款贡献利润：${guidance.unit_contribution_range_usd[0]}–${guidance.unit_contribution_range_usd[1]} USD；跟价与预算的计算分母不同，利润门槛需单独确认，不能用此净回款区间代替销售收入利润率。`);
+    if (guidance.current_target) lines.push(`当前净回款 ${guidance.current_target.net_proceeds_usd} USD；预算贡献利润 ${guidance.current_target.unit_contribution_usd} USD / 净回款利润率 ${guidance.current_target.margin_pct}%`);
+  } else if(guidance.current_target && ['BUDGET_ESTIMATE','COST_SCENARIO_UNVERIFIED'].includes(guidance.status)){
+    lines.push(`预算净回款 ${guidance.current_target.net_proceeds_usd} USD；贡献利润 ${guidance.current_target.unit_contribution_usd} USD；利润率 ${guidance.current_target.margin_pct}%（分母：${guidance.current_target.margin_basis==='BUYER_PRICE'?'买家售价':'净回款'}）`);
   } else {
     lines.push(`利润区间未生成：仍缺 ${(guidance.missing_inputs || []).map(key => costLabels[key] || key).join("、") || "核心成本"}`);
   }
@@ -179,7 +192,13 @@ function renderPricingIntelligence(analysis = {}) {
 
 function renderAiResult(record) {
   const aiBox = byId("aiBox");
-  if (!record) { aiBox.className = "empty small"; aiBox.textContent = "尚未生成 AI 提案。"; return; }
+  if (!record) {
+    aiBox.className = "empty small";
+    aiBox.textContent = currentDraft?.evidence?.processing_automation
+      ? '已按 SKU 分别处理。到下方各 SKU 卡片展开“生成的文案与属性”；切换当前 SKU 可编辑对应描述和属性。'
+      : '尚未生成 AI 提案。';
+    return;
+  }
   const proposal = record.proposal || record;
   const methodology = proposal.methodology || {
     language: "英文作为 CBT 统一底稿；已选站点另生成西班牙语或巴西葡萄牙语标题覆盖",
@@ -211,23 +230,39 @@ function updatePhysicalMetrics() {
   byId("billableWeight").textContent = billable > 0 ? `${billable.toFixed(3)} kg` : "-";
 }
 
-function applyCurrentSku(skuId) {
+function stashCurrentSkuContent() {
+  const sku = skuDetails.find(row => String(row.sku_id) === currentSkuId);
+  if (!sku?.ai_content) return;
+  skuContentEdits[currentSkuId] = {description: byId('description').value,
+    category_id: byId('categoryId').value, attributes: editorAttributes()};
+}
+
+function applyCurrentSku(skuId, loadContent = false) {
   const sku = skuDetails.find(row => String(row.sku_id || "") === String(skuId || "")) || collectedSkus.find(row => String(row.sku_id || "") === String(skuId || ""));
   if (!sku) return;
   currentSkuId = String(sku.sku_id || "");
+  if (loadContent && sku.ai_content) {
+    const content = skuContentEdits[currentSkuId] || sku.ai_content;
+    byId('description').value = text(content.description);
+    byId('categoryId').value = familyCategoryId || text(currentDraft?.payload?.category_id) || text(content.category_id);
+    byId('attributeRows').replaceChildren();
+    const allowed = currentCategory?.category_id === familyCategoryId ? new Set((currentCategory.all_attributes || []).map(a=>a.id)) : null;
+    (content.attributes || []).filter(a=>!allowed || allowed.has(a.id)).forEach(a => byId('attributeRows').appendChild(attributeRow(a)));
+  }
   if (sku.purchase_cost_cny ?? sku.price) byId("purchaseCost").value = numberOrBlank(sku.purchase_cost_cny ?? sku.price);
   byId("targetNet").value = numberOrBlank(sku.target_net_proceeds_usd);
   if (Array.isArray(sku.site_pricing)) sitePricing = Object.fromEntries(sku.site_pricing.filter(row => row?.site_id).map(row => [row.site_id, {...row}]));
   if (sku.available_quantity ?? sku.inventory) byId("quantity").value = numberOrBlank(Math.floor(Number(sku.available_quantity ?? sku.inventory)));
   if (sku.seller_sku) byId("sellerSku").value = text(sku.seller_sku);
   const pack = sku.package || {};
-  if (pack.weight_g != null) byId("weight").value = numberOrBlank(pack.weight_g);
-  if (pack.length_cm != null) byId("length").value = numberOrBlank(pack.length_cm);
-  if (pack.width_cm != null) byId("width").value = numberOrBlank(pack.width_cm);
-  if (pack.height_cm != null) byId("height").value = numberOrBlank(pack.height_cm);
-  byId("physicalStatus").value = "SUPPLIER_PACKAGING_INFO";
+  byId("weight").value = numberOrBlank(pack.weight_g);
+  byId("length").value = numberOrBlank(pack.length_cm);
+  byId("width").value = numberOrBlank(pack.width_cm);
+  byId("height").value = numberOrBlank(pack.height_cm);
+  byId("physicalStatus").value = ['SUPPLIER_PACKAGING_INFO','MEASURED_CONFIRMED'].includes(pack.status) ? pack.status : 'HUMAN_EDITED_UNVERIFIED';
   updatePricing();
   updatePhysicalMetrics();
+  if (loadContent && currentCategory?.category_id === familyCategoryId) renderCategory(currentCategory);
 }
 
 function syncCurrentSkuSitePricing() {
@@ -324,16 +359,46 @@ function renderSkuPricingMatrix() {
 function renderSkuCards() {
   const root = byId("skuCards");
   root.innerHTML = "";
+  if (skuDetails.some(s=>!['length_cm','width_cm','height_cm'].every(k=>Number(s.package?.[k])>0))) {
+    const repair=document.createElement('details');
+    repair.innerHTML='<summary>补齐包装尺寸（可一次补齐相同包装的款式）</summary><p class="tip">填写折叠装袋后的包裹三边，不能填门帘展开尺寸。只补空值，已有尺寸保留。</p><div class="sku-card-grid"><label>包装长 cm<input type="number" min="0.01" step="0.01" data-pack="length_cm"></label><label>包装宽 cm<input type="number" min="0.01" step="0.01" data-pack="width_cm"></label><label>包装高 cm<input type="number" min="0.01" step="0.01" data-pack="height_cm"></label><label>依据<input data-pack-evidence placeholder="如供应商确认／实际装袋测量"></label></div><div data-pack-skus></div><label><input type="checkbox" data-pack-confirm>我确认所选款式使用上述包装尺寸</label><button type="button" data-apply-pack>补齐所选SKU的空缺尺寸</button>';
+    const choices=repair.querySelector('[data-pack-skus]');
+    skuDetails.filter(s=>!['length_cm','width_cm','height_cm'].every(k=>Number(s.package?.[k])>0)).forEach(s=>{
+      const label=document.createElement('label');const check=document.createElement('input');check.type='checkbox';check.value=text(s.sku_id);check.dataset.packSku='';label.append(check,document.createTextNode(text(s.variant)));choices.append(label);
+    });
+    repair.querySelector('[data-apply-pack]').onclick=()=>{
+      const values=Object.fromEntries([...repair.querySelectorAll('[data-pack]')].map(i=>[i.dataset.pack,Number(i.value)]));
+      const ids=[...repair.querySelectorAll('[data-pack-sku]:checked')].map(i=>i.value);const evidence=repair.querySelector('[data-pack-evidence]').value.trim();
+      if(!ids.length||!evidence||!repair.querySelector('[data-pack-confirm]').checked||!Object.values(values).every(v=>Number.isFinite(v)&&v>0)){showMessage('请选择SKU，填写三边与依据，并确认所选包装一致。','error');return;}
+      skuPackageConfirmations.push({...values,sku_ids:ids,evidence,confirmed:true});
+      skuDetails.filter(s=>ids.includes(text(s.sku_id))).forEach(s=>{s.package={...(s.package||{})};Object.entries(values).forEach(([k,v])=>{if(!s.package[k])s.package[k]=v;});});
+      applyCurrentSku(currentSkuId);renderSkuCards();showMessage('已暂存包装尺寸；保存商品后生效。','info');
+    };
+    root.append(repair);
+  }
   skuDetails.forEach((sku, index) => {
     const pack = sku.package || {};
     const card = document.createElement("article");
     card.className = "sku-card-detail";
     card.dataset.skuId = text(sku.sku_id);
     card.innerHTML = `<div class="sku-card-head"><label><input type="radio" name="pricingSku" ${text(sku.sku_id)===currentSkuId?"checked":""}> 当前核价 SKU</label><strong></strong><small></small><span class="sku-source-images"></span></div><div class="sku-card-grid">${skuInput("卖家 SKU", "seller_sku", sku.seller_sku)}${skuInput("库存", "available_quantity", sku.available_quantity, "number")}${skuInput("采购价 (CNY)", "purchase_cost_cny", sku.purchase_cost_cny, "number")}${skuInput("包裹重量 (g)", "weight_g", pack.weight_g, "number")}${skuInput("长 (cm)", "length_cm", pack.length_cm, "number")}${skuInput("宽 (cm)", "width_cm", pack.width_cm, "number")}${skuInput("高 (cm)", "height_cm", pack.height_cm, "number")}${skuInput("条码", "gtin", sku.gtin)}</div><div class="sku-card-foot"><span>组合属性：${escAttr((sku.variation_attributes||[]).map(x=>`${x.name}=${x.value}`).join("；") || sku.variant || "未取得")}</span><span>${text(sku.barcode_type||"NO_GTIN")}</span></div><div class="sku-card-images" data-sku-images></div>`;
+    if(sku.product_measurements?.dimensions_cm?.length){const note=document.createElement('p');note.className='tip';note.textContent='已采到商品规格尺寸：'+sku.product_measurements.dimensions_cm.join(' × ')+' cm（商品尺寸，不能代填运输包装三边）';card.querySelector('.sku-card-grid').before(note);}
+    if(sku.supplier_weight_observation?.weight_type==='UNSPECIFIED'){const note=document.createElement('p');note.className='tip';note.textContent='已采到表格重量：'+sku.supplier_weight_observation.value+' g；原表仅写重量，净重或含包装重尚未区分。';card.querySelector('.sku-card-grid').before(note);}
     card.querySelector("strong").textContent = sku.variant || `SKU ${index + 1}`;
-    card.querySelector("small").textContent = `货源 SKU：${sku.sku_id}`;
+    card.querySelector("small").textContent = sku.sku_id_origin==='SINGLE_OFFER_WITHOUT_OPTIONS'?`本地单品编号：${sku.sku_id}（页面无规格选项）`:`货源 SKU：${sku.sku_id}`;
     card.querySelector(".sku-source-images").textContent = `专属图 ${sku.source_image_count || 0} 张`;
-    card.querySelector('input[type="radio"]').addEventListener("change", () => { syncCurrentSkuSitePricing(); currentSkuId = text(sku.sku_id); byId("currentSku").value = currentSkuId; applyCurrentSku(currentSkuId); renderSkuCards(); });
+    if (sku.ai_content || sku.ai_processing) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = sku.ai_processing?.status === 'failed' ? '此 SKU 处理失败，查看原因' : '查看此 SKU 生成的文案与属性';
+      const output = document.createElement('pre');
+      output.style.whiteSpace = 'pre-wrap';
+      output.textContent = sku.ai_processing?.status === 'failed' ? text(sku.ai_processing.error) : `${sku.ai_content?.title || ''}\n\n${sku.ai_content?.description || ''}\n\n${(sku.ai_content?.attributes || []).map(a=>`${a.id}: ${a.value_name || a.value_id || '待补'}`).join('\n')}`;
+      const modelNote = document.createElement('small');
+      modelNote.textContent = modelResolutionNote(sku.ai_content?.model_resolution || sku.model_resolution);
+      details.append(summary, output); if (modelNote.textContent) details.append(modelNote); card.append(details);
+    }
+    card.querySelector('input[type="radio"]').addEventListener("change", () => { syncCurrentSkuSitePricing(); stashCurrentSkuContent(); byId("currentSku").value = text(sku.sku_id); applyCurrentSku(sku.sku_id, true); renderSkuCards(); });
     card.querySelectorAll("[data-sku-field]").forEach(input => input.addEventListener("input", () => {
       const key = input.dataset.skuField;
       if (["weight_g", "length_cm", "width_cm", "height_cm"].includes(key)) sku.package = {...(sku.package||{}), [key]: input.value}; else sku[key] = input.value;
@@ -409,7 +474,8 @@ function stageLabel(stage) {
     AI_PROCESSING: "完整 AI 流程处理中",
     AI_PAUSED: "完整 AI 流程已暂停",
     AI_FAILED: "完整 AI 流程失败",
-    READY_FOR_HUMAN_REVIEW: "待人工审核",
+    READY_FOR_HUMAN_REVIEW: "待发布检查",
+    PUBLISH_BLOCKED: "待发布·需补资料",
     READY_TO_PUBLISH: "发布前等待授权",
     READ_ERROR: "草稿读取失败",
   }[stage] || stage || "未知";
@@ -437,6 +503,13 @@ async function loadList() {
   if (initial && !selectedName) await loadDraft(initial);
 }
 
+function modelResolutionNote(resolution) {
+  if (!resolution || !['CANDIDATE', 'EXPLICIT'].includes(resolution.status)) return '';
+  const label = resolution.status === 'CANDIDATE' ? '型号候选（非厂家型号确认）' : '供应商明示型号';
+  const source = (resolution.sources || []).map(row => `${row.label}：${row.quote}`).join('；');
+  return `${label}：${resolution.value_name || ''}。出处：${source}。${resolution.reason || ''}`;
+}
+
 function attributeRow(attribute = {}, metadata = {}) {
   const tr = document.createElement("article");
   tr.className = "attribute-row";
@@ -455,11 +528,19 @@ function attributeRow(attribute = {}, metadata = {}) {
     const id = tr.querySelector('[data-field="id"]').value.trim().toUpperCase();
     tr.querySelector("[data-label]").textContent = metadata.name ? `${attributeNamesZh[id] || metadata.name}` : (attributeNamesZh[id] || "自定义属性");
     tr.querySelector("[data-id]").textContent = id;
+    const selected = skuDetails.find(row => String(row.sku_id) === currentSkuId);
+    const resolution = selected?.ai_content?.model_resolution || selected?.model_resolution;
+    if (id === 'MODEL' && resolution && tr.querySelector('[data-field="value_name"]').value === resolution.value_name) {
+      tr.querySelector('[data-source]').textContent = modelResolutionNote(resolution);
+    } else if (id === 'MODEL' && resolution?.status === 'CANDIDATE') {
+      tr.querySelector('[data-source]').textContent = '当前值与来源候选不同，待核对';
+    } else tr.querySelector('[data-source]').textContent = tr.dataset.source;
   };
   tr.querySelector("[data-required]").textContent = metadata.required ? "必填" : "可选";
   tr.querySelector("[data-required]").className = metadata.required ? "required-badge" : "optional-badge";
   tr.querySelector("[data-source]").textContent = tr.dataset.source;
   tr.querySelector('[data-field="id"]').addEventListener("input", refreshLabel);
+  tr.querySelector('[data-field="value_name"]').addEventListener("input", refreshLabel);
   refreshLabel();
   tr.querySelector("button").addEventListener("click", () => tr.remove());
   return tr;
@@ -482,16 +563,13 @@ function renderCategory(category) {
   byId("categoryPath").value = path || categoryNameZh(category.name) || "";
   const live = category.query_source === "MERCADOLIBRE_OFFICIAL_API_LIVE";
   byId("categoryInfo").textContent = `${categoryNameZh(category.name) || category.category_id}｜${path || "无路径"}｜${category.is_leaf ? "末级类目" : "非末级类目"}｜${live ? "刚从官方查询" : "使用官方缓存"}`;
+  if(currentDraft?.evidence?.classification_review?.status==='NEEDS_REVIEW' && category.category_id===currentDraft?.payload?.category_id)byId('categoryInfo').textContent='当前类目仅为未核验候选：'+(currentDraft.evidence.classification_review.reason||'用途分支待核对')+'｜'+byId('categoryInfo').textContent;
   const existing = new Map(editorAttributes().map(row => [row.id, row]));
   const physical = {
     PACKAGE_HEIGHT: byId("height").value ? `${byId("height").value} cm` : "",
     PACKAGE_WIDTH: byId("width").value ? `${byId("width").value} cm` : "",
     PACKAGE_LENGTH: byId("length").value ? `${byId("length").value} cm` : "",
     PACKAGE_WEIGHT: byId("weight").value ? `${Number(byId("weight").value) / 1000} kg` : "",
-    HEIGHT: byId("height").value ? `${byId("height").value} cm` : "",
-    WIDTH: byId("width").value ? `${byId("width").value} cm` : "",
-    LENGTH: byId("length").value ? `${byId("length").value} cm` : "",
-    WEIGHT: byId("weight").value ? `${Number(byId("weight").value) / 1000} kg` : "",
     SELLER_PACKAGE_HEIGHT: byId("height").value ? `${byId("height").value} cm` : "",
     SELLER_PACKAGE_WIDTH: byId("width").value ? `${byId("width").value} cm` : "",
     SELLER_PACKAGE_LENGTH: byId("length").value ? `${byId("length").value} cm` : "",
@@ -506,7 +584,7 @@ function renderCategory(category) {
       old.value_name = physical[attribute.id]; old.source = "physical_specification";
     }
     if (attribute.id === "BRAND" && isSelfFulfilled() && !old.value_name && !old.value_id) {
-      old.value_name = "Generic"; old.source = "user_default · rule:BRAND";
+      old.value_name = "Generic"; old.source = "统一刊登品牌规则";
     }
     byId("attributeRows").appendChild(attributeRow(old, {name: attribute.name, required: requiredIds.has(attribute.id)}));
   });
@@ -545,7 +623,7 @@ function renderCategory(category) {
 async function queryCategory(automatic = false) {
   const categoryId = byId("categoryId").value.trim().toUpperCase();
   if (!categoryId) {
-    byId("categoryInfo").textContent = "请先填写类目 ID。";
+    byId("categoryInfo").textContent = currentDraft?.evidence?.classification_review?.reason || "请先匹配商品用途与官方类目。";
     return;
   }
   const button = byId("queryCategory");
@@ -584,6 +662,7 @@ async function loadCategoryLevel(parentId = "") {
     }
     if (data.is_leaf) {
       byId("categoryId").value = parentId;
+      familyCategoryId = parentId;
       byId("categoryPath").value = categoryBilingualPath(path);
       byId("categoryDialog").close();
       await queryCategory(false);
@@ -598,6 +677,7 @@ async function loadCategoryLevel(parentId = "") {
         button.querySelector("span").textContent = categoryBilingualPath(row.path_from_root || []) || "选择此分类";
         button.onclick = async () => {
           byId("categoryId").value = row.id;
+          familyCategoryId = row.id;
           byId("categoryPath").value = categoryBilingualPath(row.path_from_root || []);
           byId("categoryDialog").close();
           await queryCategory(false);
@@ -607,7 +687,7 @@ async function loadCategoryLevel(parentId = "") {
       }
       list.appendChild(button);
     });
-    status.textContent = data.children?.length ? `共 ${data.children.length} 个分类` : "该分类没有下级分类";
+    status.textContent = data.children?.length ? `共 ${data.children.length} 个分类` : (data.message || (parentId ? "本次未取得下级分类，请核验ID或返回上一级" : "本次未取得官方分类，保留待补；可用已核验类目ID"));
   } catch (error) {
     status.textContent = `本次未取得：${error.message}`;
   }
@@ -636,11 +716,12 @@ async function discoverCategoryAndAttributes(useAi = false) {
         confirmed: useAi,
         site_id: byId("categorySite").value,
         title: byId("title").value,
-        category_id: byId("categoryId").value,
+        category_id: "",
         attributes: editorAttributes(),
       }),
     });
     byId("categoryId").value = data.selected.category_id;
+    familyCategoryId = data.selected.category_id;
     renderCategory(data.selected);
     if (useAi) {
       const rows = currentAttributeMap();
@@ -732,7 +813,7 @@ function initialSkuListingGalleries() {
   return skuDetails.map((sku, index) => {
     const source = groups.find(group => text(group.sku_id) === text(sku.sku_id))?.gallery || [];
     const seen = new Set();
-    const images = [...source, ...gallery].filter(image => { const key=imageKey(image); if (!key || seen.has(key)) return false; seen.add(key); return true; }).slice(0, 8);
+    const images = [...source, ...gallery].filter(image => ['HUMAN_SELECTED','APPROVED','AUTO_SCREENED'].includes(image.review_status)||image.image_type==='generated').filter(image => { const key=imageKey(image); if (!key || seen.has(key)) return false; seen.add(key); return true; }).slice(0, 8);
     return {sku_id:text(sku.sku_id), variant:text(sku.variant || `规格 ${index+1}`), gallery:images};
   });
 }
@@ -742,7 +823,7 @@ function renderSkuListingEditor() {
   skuListingGalleries.forEach((sku, skuIndex) => {
     const section = byId("skuCards").querySelector(`[data-sku-id="${CSS.escape(text(sku.sku_id))}"] [data-sku-images]`);
     if (!section) return;
-    section.innerHTML = `<div class="sku-card-image-head"><strong></strong><small></small></div><p class="tip">每个 SKU 使用“专属首图 + 专属后续图 + 公共图”。可单独设首图、排序、旋转、裁方或移除；保存商品时一并保存。</p><div class="gallery"></div>`;
+    section.innerHTML = `<div class="sku-card-image-head"><strong></strong><small></small></div><p class="tip">每SKU至少3张不同图片。空图库可在采集原图区选择所属款式，绑定原图后再筛选补图；其他花色不能共用。</p><div class="gallery"></div>`;
     section.querySelector("strong").textContent = sku.variant || sku.sku_id;
     section.querySelector("small").textContent = `SKU ${sku.sku_id} · ${sku.gallery.length} 张`;
     const galleryRoot = section.querySelector(".gallery");
@@ -753,7 +834,7 @@ function renderSkuListingEditor() {
       card.querySelector("img").src = displayedImageUrl(item); card.querySelector("b").textContent = imageIndex + 1;
       card.querySelector("em").textContent = item.source === "sku_ai_generated" ? "SKU AI 图" : item.source === "sku" || item.image_type === "sku" ? "SKU 专属图" : "通用图片";
       card.querySelector("strong").textContent = imageIndex === 0 ? "首图" : `第 ${imageIndex + 1} 张`;
-      const rerender = () => renderSkuListingEditor();
+      const rerender = () => { renderSourceGallery(); renderSkuListingEditor(); };
       card.querySelector("[data-main]").disabled = imageIndex === 0; card.querySelector("[data-up]").disabled = imageIndex === 0; card.querySelector("[data-down]").disabled = imageIndex === sku.gallery.length - 1;
       card.querySelector("[data-main]").onclick = () => { sku.gallery.unshift(sku.gallery.splice(imageIndex, 1)[0]); rerender(); };
       card.querySelector("[data-up]").onclick = () => { [sku.gallery[imageIndex-1],sku.gallery[imageIndex]]=[sku.gallery[imageIndex],sku.gallery[imageIndex-1]]; rerender(); };
@@ -768,38 +849,98 @@ function renderSkuListingEditor() {
   });
 }
 
+function retainSourceSelection(item, quality, locked) {
+  if (locked || ['HUMAN_SELECTED','APPROVED'].includes(item.review_status) || item.image_type==='generated') return true;
+  const result=(quality||[]).find(r=>r.source===(item.remote_url||item.local_file));
+  return !result || result.usable_candidate===true;
+}
+
+function sourceImageState(precheck, selected, manualRetained, multi){
+ const quality=!precheck?'尚未初筛':precheck.error?'初筛执行失败':precheck.usable_candidate?'初筛候选':'初筛未通过';
+ const tone=!precheck?'neutral':precheck.error?'danger':precheck.usable_candidate?'success':'warning';
+ const selection=selected?(precheck&&(precheck.error||!precheck.usable_candidate)?(manualRetained?'人工保留 · 需复核':'已选建议 · 需复核'):'已选上架'):(multi?'未选 · 先绑定款式':'未选上架');
+ return {quality,tone,selection};
+}
+function sourceQualityRows(skuId){
+ const review=currentDraft?.evidence?.image_review||{};
+ const rows=new Map((review.source_quality_review?.items||[]).map(r=>[r.source,r]));
+ const scoped=(review.source_screening?.skus||[]).find(r=>text(r.sku_id)===text(skuId));
+ for(const r of scoped?.items||[])rows.set(r.source,{...r,usable_candidate:r.usable===true&&!r.error,scope_sku_id:skuId});
+ return [...rows.values()];
+}
 function renderSourceGallery() {
+  const activeSku=typeof currentSkuId==='undefined'?'':currentSkuId;
+  const locked=currentDraft?.edit_metadata?.field_locks?.images===true;
+  // Rendering must not remove saved images. Quality is scoped to each SKU;
+  // filtering or replacing galleries belongs to an explicit processing action.
   const root = byId("sourceGallery");
   root.innerHTML = "";
-  sourceGallery.filter(item => !blockedSourceImage(item)).forEach((item, index) => {
+  const visible=sourceGallery.filter(item => !blockedSourceImage(item));
+  const candidates=visible.filter(item=>sourceQualityRows(item.sku_id||activeSku).some(q=>q.source===(item.remote_url||item.local_file)&&q.usable_candidate===true&&!q.error)).length;
+  const summary=byId('sourceImageSummary');
+  if(summary)summary.textContent=`${visible.length} 张原图 · ${candidates} 张质量候选（按对应 SKU 核验） · ${skuDetails.length>1?'上架选择按 SKU 分别保存':'勾选图片加入当前商品图库'}`;
+  visible.forEach((item, index) => {
     const card = document.createElement("article");
     const source = displayedImageUrl(item);
-    const selected = gallery.some((row) => imageKey(row) === imageKey(item));
+    const sameImage = row => (row.remote_url && row.remote_url === item.remote_url) || (row.local_file && text(row.local_file).replace(/^assets\//,'') === text(item.local_file).replace(/^assets\//,'')) || imageKey(row) === imageKey(item);
+    const selectedRows = skuDetails.length > 1 ? skuListingGalleries.flatMap(g=>g.gallery||[]) : gallery;
+    const selected = selectedRows.some(sameImage);
     card.className = "image-card";
     card.innerHTML = `<img alt="采集原图"><strong></strong><label><input type="checkbox">用于上架</label><div><button type="button" data-left>←</button><button type="button" data-right>→</button><button type="button" data-download>下载</button><button type="button" data-hide class="danger">删除</button></div>`;
     card.querySelector("img").src = source || "";
+    card.querySelector("[data-left]").setAttribute("aria-label",`原图${index+1}向前移`);
+    card.querySelector("[data-right]").setAttribute("aria-label",`原图${index+1}向后移`);
     const typeLabel = item.image_type === "sku" ? "SKU 图片" : "商品原图";
     card.querySelector("strong").textContent = `${typeLabel} ${index + 1}${item.variant ? `｜${item.variant}` : ""}`;
+    const precheck=sourceQualityRows(item.sku_id||activeSku).find(r=>r.source===(item.remote_url||item.local_file));
+    const retained=locked||selectedRows.some(row=>sameImage(row)&&['HUMAN_SELECTED','APPROVED'].includes(row.review_status));
+    const state=sourceImageState(precheck,selected,retained,skuDetails.length>1);
+    const qualityNote=document.createElement('span');qualityNote.className='image-quality image-quality--'+state.tone;qualityNote.textContent=state.quality;card.append(qualityNote);
+    const selectionNote=document.createElement('small');selectionNote.className='image-selection';selectionNote.textContent=state.selection;
+    if(selected&&skuDetails.length>1){const groups=skuListingGalleries.filter(g=>(g.gallery||[]).some(sameImage));selectionNote.textContent+=' · '+groups.map(g=>text(g.variant||g.sku_id)).join('、');}
+    card.append(selectionNote);
+    if(precheck?.reason||precheck?.error){const details=document.createElement('details');details.className='image-reason';const heading=document.createElement('summary');heading.textContent='查看初筛依据';const reason=document.createElement('p');reason.textContent=precheck.error||precheck.reason;details.append(heading,reason);card.append(details);}
+    if(skuDetails.length>1){
+      const select=document.createElement('select');select.setAttribute('aria-label',`原图${index+1}所属SKU`);select.add(new Option('选择这张图对应的款式',''));
+      skuDetails.forEach(s=>select.add(new Option(text(s.variant),text(s.sku_id))));
+      const bind=document.createElement('button');bind.type='button';bind.textContent='绑定原图并加入此SKU';
+      bind.onclick=()=>{
+        if(!select.value){showMessage('先选择这张原图实际对应的款式。','error');return;}
+        const target=skuDetails.find(s=>text(s.sku_id)===select.value);const reference=text(item.local_file||item.remote_url);
+        if(!skuSourceAssignments.some(a=>a.sku_id===select.value&&a.reference===reference))skuSourceAssignments.push({sku_id:select.value,reference});
+        let group=skuListingGalleries.find(g=>text(g.sku_id)===select.value);
+        if(!group){group={sku_id:select.value,variant:target.variant,gallery:[]};skuListingGalleries.push(group);}
+        if(!group.gallery.some(i=>imageKey(i)===imageKey(item)))group.gallery.push({...item,image_type:'sku',sku_id:select.value,review_status:'HUMAN_SELECTED'});
+        renderSkuListingEditor();renderSourceGallery();showMessage('已暂存款式原图绑定；保存商品后生效。','info');
+      };card.append(select,bind);
+      if(precheck && !precheck.usable_candidate){bind.disabled=true;bind.title='原图初筛未通过，请先修复图片或重新筛选';}
+    }
     const checkbox = card.querySelector("input");
     checkbox.checked = selected;
+    checkbox.disabled = skuDetails.length > 1 ? !selected : Boolean(precheck && !precheck.usable_candidate && !selected);
+    checkbox.title = skuDetails.length > 1 ? (selected?'取消勾选会从使用此图的所有 SKU 中移出；原图保留':'先确认图片所属款式；质量通过不等于SKU归属已确认') : '';
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked && !gallery.some((row) => imageKey(row) === imageKey(item))) gallery.push({...item});
-      if (!checkbox.checked) gallery = gallery.filter((row) => imageKey(row) !== imageKey(item));
-      renderGallery();
+      if(skuDetails.length>1){if(!checkbox.checked)skuListingGalleries.forEach(g=>g.gallery=(g.gallery||[]).filter(row=>!sameImage(row)));renderSkuListingEditor();renderSourceGallery();return;}
+      if (checkbox.checked && !gallery.some(sameImage)) gallery.push({...item,review_status:'HUMAN_SELECTED'});
+      if (!checkbox.checked) gallery = gallery.filter((row) => !sameImage(row));
+      renderGallery(); renderSourceGallery();
     });
     card.querySelector("[data-left]").disabled = index === 0;
-    card.querySelector("[data-right]").disabled = index === sourceGallery.length - 1;
+    card.querySelector("[data-right]").disabled = index === visible.length - 1;
     card.querySelector("[data-left]").addEventListener("click", () => {
-      [sourceGallery[index - 1], sourceGallery[index]] = [sourceGallery[index], sourceGallery[index - 1]]; renderSourceGallery();
+      const from=sourceGallery.indexOf(item),to=sourceGallery.indexOf(visible[index-1]);
+      if(from>=0&&to>=0)[sourceGallery[to],sourceGallery[from]]=[sourceGallery[from],sourceGallery[to]]; renderSourceGallery();
     });
     card.querySelector("[data-right]").addEventListener("click", () => {
-      [sourceGallery[index], sourceGallery[index + 1]] = [sourceGallery[index + 1], sourceGallery[index]]; renderSourceGallery();
+      const from=sourceGallery.indexOf(item),to=sourceGallery.indexOf(visible[index+1]);
+      if(from>=0&&to>=0)[sourceGallery[from],sourceGallery[to]]=[sourceGallery[to],sourceGallery[from]]; renderSourceGallery();
     });
     card.querySelector("[data-download]").addEventListener("click", () => downloadImage(item, index));
     card.querySelector("[data-hide]").addEventListener("click", () => {
       sourceGallery = sourceGallery.filter(row => imageKey(row) !== imageKey(item));
       gallery = gallery.filter(row => imageKey(row) !== imageKey(item));
-      renderSourceGallery(); renderGallery();
+      skuListingGalleries.forEach(group=>group.gallery=(group.gallery||[]).filter(row=>!sameImage(row)));
+      renderSourceGallery(); renderGallery(); renderSkuListingEditor();
     });
     root.appendChild(card);
   });
@@ -824,6 +965,7 @@ function renderDetailGallery() {
 function renderAiImageModule() {
   const promptRoot = byId("imagePromptRows");
   const galleryRoot = byId("aiGeneratedGallery");
+  byId("generateAiImages").textContent = `提交 ${imagePrompts.length} 张 AI 生图`;
   promptRoot.innerHTML = "";
   imagePrompts.forEach((item, index) => {
     const block = document.createElement("label");
@@ -834,7 +976,15 @@ function renderAiImageModule() {
     block.querySelector("textarea").value = item.prompt || "";
     promptRoot.appendChild(block);
   });
-  const items = imageJob?.items || [];
+  const items = [...(imageJob?.items || [])];
+  const jobFiles = new Set(items.map(item => text(item.local_file).replace(/^assets\//, "")));
+  for (const candidate of currentDraft?.evidence?.image_review?.generated_gallery || []) {
+    const local = text(candidate.local_file).replace(/^assets\//, "");
+    if (local && !jobFiles.has(local)) {
+      items.push({kind: "candidate", label: candidate.label || "补充候选图", status: "done", local_file: local});
+      jobFiles.add(local);
+    }
+  }
   galleryRoot.innerHTML = "";
   items.forEach((item, index) => {
     const card = document.createElement("article");
@@ -859,7 +1009,10 @@ function renderAiImageModule() {
   });
   if (!items.length) galleryRoot.innerHTML = '<div class="empty small">尚未生成 AI 图片。先检查提示词和语言，再提交任务。</div>';
   const status = imageJob?.status || "not_started";
-  byId("aiImageStatus").textContent = {not_started:"尚未生成",queued:"已排队",generating:"生成中",done:"已完成",failed:"生成失败"}[status] || status;
+  const screening = currentDraft?.evidence?.image_review?.source_screening;
+  const checked=(screening?.skus||[]).reduce((n,s)=>n+(s.items||[]).length,0);
+  const screenedNote = screening ? checked ? `｜实际检查 ${checked} 张：${(screening.skus||[]).map(s=>`SKU ${s.sku_id} 可用 ${s.usable_count} 张、缺 ${s.missing_count} 张`).join('；')}。付费生图需确认` : '｜尚未筛图：缺少款式原图绑定，请在采集原图区选择所属SKU；付费生图需确认' : '';
+  byId("aiImageStatus").textContent = ({not_started:"尚未生成",queued:"已排队",generating:"生成中",done:"已完成",failed:"生成失败"}[status] || status) + screenedNote;
   byId("generateAiImages").disabled = ["queued", "generating"].includes(status);
 }
 
@@ -873,7 +1026,7 @@ function renderSkuImageModule() {
   const status = skuImageJob?.status || "not_started";
   byId("skuImageStatus").textContent = status === "done" ? "全部生成完成。每个 SKU 的专属图会作为该规格首图，通用图库随后追加。" : status === "failed" ? `生成失败：${skuImageJob.error || "查看 AI 日志"}` : ["queued","generating"].includes(status) ? `处理中：${(skuImageJob.items||[]).filter(x=>x.status==="done").length}/${collectedSkus.length}` : "尚未生成；提交前会再次显示预计消耗张数。";
   byId("generateSkuImages").disabled = ["queued","generating"].includes(status);
-  root.innerHTML = sourceGroups.length ? `<div class="tip">已采集 ${sourceGroups.length} 个 SKU 的 ${sourceCount} 张专属原图；每个规格的首图和后续图会一并保留，审核页可逐 SKU 调整。</div>` : "";
+  root.innerHTML = sourceGroups.length ? `<div class="tip">已采集 ${sourceGroups.length} 个 SKU 的 ${sourceCount} 张专属原图；每个规格的首图和后续图会一并保留，编辑页可逐 SKU 调整。</div>` : "";
   (skuImageJob?.items || []).forEach(item=>{const card=document.createElement("article");card.className="image-card";const ready=item.status==="done"&&item.local_file;card.innerHTML=ready?`<img alt="SKU 专属图"><strong></strong><span></span><div><button type="button" data-download>下载</button></div>`:`<div class="ai-image-placeholder"></div><strong></strong><span></span>`;card.querySelector("strong").textContent=item.label||item.variant||item.sku_id;card.querySelector("span").textContent=item.status==="failed"?`失败：${item.error||skuImageJob.error||"未知错误"}`:item.status==="done"?"SKU 专属首图":"排队中…";if(ready){const generated={role:`sku_ai_${item.sku_id}`,local_file:item.local_file,source:"sku_ai_generated",sku_id:item.sku_id,variant:item.variant,review_status:"UNREVIEWED"};card.querySelector("img").src=displayedImageUrl(generated);card.querySelector("[data-download]").onclick=()=>downloadImage(generated,0)}root.appendChild(card)});
   if (!(skuImageJob?.items || []).length && !sourceGroups.length) root.innerHTML='<div class="empty small">尚未采集到 SKU 专属图。重新用“多 SKU 采集”抓取后会在这里显示。</div>';
 }
@@ -890,10 +1043,20 @@ async function refreshPromptLanguage() {
   renderAiImageModule();
 }
 
+function renderSourceWebsite(value) {
+  const link=byId('sourceWebsite');
+  link.classList.add('hidden');link.removeAttribute('href');link.removeAttribute('title');
+  try{const url=new URL(value);if(!['http:','https:'].includes(url.protocol))return;
+    link.href=url.href;link.title=url.href;link.textContent=/(^|\.)1688\.com$/.test(url.hostname)?'查看 1688 货源 ↗':'查看货源网站 ↗';link.classList.remove('hidden');
+  }catch{}
+}
+
 async function loadDraft(name) {
   const data = await api(`/api/drafts/${encodeURIComponent(name)}`);
   selectedName = name;
   currentDraft = data.draft;
+  skuContentEdits = {};
+  skuSourceAssignments = []; skuPackageConfirmations = [];
   imagePrompts = data.image_prompts || [];
   imageJob = data.image_job || null;
   skuImageJob = data.sku_image_job || null;
@@ -909,6 +1072,11 @@ async function loadDraft(name) {
 
   const payload = currentDraft.payload || {};
   const evidence = currentDraft.evidence || {};
+  let referenceBox=byId('zyingCompetitorReference');
+  if(!referenceBox){referenceBox=document.createElement('p');referenceBox.id='zyingCompetitorReference';referenceBox.className='tip';referenceBox.style.gridColumn='1 / -1';byId('categoryPath').closest('label').after(referenceBox);}
+  const competitor=evidence.competitor_price||evidence.zying_detail?.competitor_price;
+  const sourcePath=evidence.zying_detail?.category_path||'';
+  referenceBox.textContent=evidence.zying_detail?`智赢子类目：${sourcePath||'待补（请先缓存列表）'}；类目ID：${payload.category_id||'CATEGORY_MAPPING_PENDING'}。竞品参考价：${competitor?.amount!=null?competitor.amount+' USD':'USD待补（不自动换汇）'} / ${competitor?.buyer_price_mxn??evidence.zying_detail.buyer_price?.MXN??'待补'} MXN，来源 competitor_price，不是最终售价。最终售价须采购成本等齐全且贡献利润÷买家售价严格>10%。`:'';
   const latest = data.latest_capture || null;
   const titleLocked = currentDraft.edit_metadata?.field_locks?.title === true;
   const newerTitle = text(latest?.title).trim();
@@ -929,6 +1097,7 @@ async function loadDraft(name) {
   }
   byId("description").value = text(payload.description);
   byId("categoryId").value = text(payload.category_id);
+  familyCategoryId = text(payload.category_id);
   const categoryPrefix = ["CBT", "MLM", "MLB", "MLC", "MLA", "MCO"].find(prefix => text(payload.category_id).startsWith(prefix));
   byId("categorySite").value = categoryPrefix || "CBT";
   byId("quantity").value = numberOrBlank(payload.available_quantity);
@@ -1017,10 +1186,9 @@ async function loadDraft(name) {
   }));
   sourceGallery = (latestStructured && latestProducts.length ? [...latestProducts, ...latestSkus] : [...(evidence.image_review?.source_gallery || evidence.image_review?.gallery || [])]).filter(item => !blockedSourceImage(item));
   detailGallery = latestStructured ? latestDetails : [...(evidence.image_review?.detail_gallery || [])];
-  gallery = latestStructured && !(evidence.image_review?.generated_gallery || []).length && !currentDraft.edit_metadata?.field_locks?.images
-    ? latestProducts.slice(0, 3)
-    : [...(evidence.image_review?.gallery || [])].filter(item => !blockedSourceImage(item));
-  if (!currentDraft.edit_metadata?.field_locks?.images && !(evidence.image_review?.generated_gallery || []).length) gallery = gallery.slice(0, 3);
+  gallery = [...(evidence.image_review?.gallery || [])].filter(item => !blockedSourceImage(item));
+  if (skuDetails.length > 1 && !currentDraft.edit_metadata?.field_locks?.images) gallery=gallery.filter(item=>['HUMAN_SELECTED','APPROVED'].includes(item.review_status)||item.image_type==='generated');
+  if (!evidence.image_review?.source_screening && !currentDraft.edit_metadata?.field_locks?.images) gallery = gallery.filter(item=>['HUMAN_SELECTED','APPROVED','AUTO_SCREENED'].includes(item.review_status)||item.image_type==='generated');
   defaultGallery = gallery.map((item) => ({...item}));
   skuListingGalleries = initialSkuListingGalleries();
   renderSourceGallery();
@@ -1044,32 +1212,15 @@ async function loadDraft(name) {
   byId("warningCount").textContent = warnings.length;
   byId("validationText").textContent = [...errors, ...warnings].join("；") || data.workflow?.next_action || "基础资料已齐。";
 
-  const facts = [
-    ["货源链接", evidence.supplier_url],
-    ["采购成本", evidence.purchase_cost ? `${evidence.purchase_cost.amount} ${evidence.purchase_cost.currency}` : "未提供"],
-    ["货源商品编号", evidence.source_product_id],
-    ["原始证据文件", evidence.source_capture || evidence.source_file],
-    ["来源页信息", evidence.supplier_page ? JSON.stringify(evidence.supplier_page, null, 2) : "未提供"],
-  ];
   const source = latest || evidence.supplier_page || {};
-  const summaryValues = [
-    ["采集标题", source.title || currentTitle || "未提供"],
-    ["采集价", source.pricing?.amount != null ? `${source.pricing.amount} CNY` : `${evidence.purchase_cost?.amount ?? "未提供"}`],
-    ["国内运费", source.domestic_shipping?.amount != null ? `${source.domestic_shipping.amount} CNY` : "未取得"],
-    ["采集方式", source.extraction_source === "1688_structured_page_state" ? "页面结构化数据" : "页面文字备用方式"],
-  ];
-  byId("sourceSummary").innerHTML = "";
-  summaryValues.forEach(([key, value]) => {
-    const div = document.createElement("div");
-    div.innerHTML = `<span></span><strong></strong>`;
-    div.querySelector("span").textContent = key;
-    div.querySelector("strong").textContent = value;
-    byId("sourceSummary").appendChild(div);
-  });
+  renderSourceWebsite(evidence.supplier_url || source.url || source.source_url);
   const skuRows = source.skus?.length ? source.skus : (evidence.supplier_page?.skus || []);
   const collectionMode = source.collection_mode || evidence.supplier_page?.collection_mode || "single";
   const showSkuSection = collectionMode === "multi" || skuRows.length > 1;
   byId("skuSection").classList.toggle("hidden", !showSkuSection);
+  byId("skuManagement").classList.toggle("hidden", !showSkuSection);
+  byId("skuManagementLink").classList.toggle("hidden", !showSkuSection);
+  byId("skuContext").classList.toggle("hidden", !showSkuSection);
   const skuSelect = byId("currentSku");
   skuSelect.innerHTML = "";
   skuRows.forEach((sku, index) => {
@@ -1081,27 +1232,25 @@ async function loadDraft(name) {
   if (showSkuSection && skuRows.length) {
     const resolved = skuRows.some(row => String(row.sku_id || "") === currentSkuId) ? currentSkuId : String(skuRows[0].sku_id || 0);
     skuSelect.value = resolved;
-    applyCurrentSku(resolved);
+    applyCurrentSku(resolved, true);
   }
   byId("skuCards").innerHTML = "";
   renderSkuCards();
   if (showSkuSection && !byId("skuCards").children.length) {
     byId("skuCards").innerHTML = '<div class="empty small">选择了多 SKU 采集，但本次未取得规格明细。请确认商品确有多个规格后再采集。</div>';
   }
-  byId("evidenceBox").innerHTML = "";
-  facts.forEach(([key, value]) => {
-    const row = document.createElement("div");
-    row.innerHTML = "<strong></strong><pre></pre>";
-    row.querySelector("strong").textContent = key;
-    row.querySelector("pre").textContent = text(value || "未提供");
-    byId("evidenceBox").appendChild(row);
-  });
   showMessage("已读取当前商品草稿。点击保存后会备份旧稿并保留本页选项。", "info");
   await queryCategory(true);
+  if (location.hash === "#aiImages") requestAnimationFrame(() => byId("aiImages").scrollIntoView({block:"start"}));
+  else if (["#sourceImages","#images","#physical","#pricing","#attributes","#sites","#skuManagement","#evidence"].includes(location.hash)) requestAnimationFrame(()=>{
+    const target=location.hash==='#evidence'?'skuManagement':location.hash.slice(1);
+    const section=byId(target);(section?.classList.contains('hidden')?byId('basic'):section)?.scrollIntoView({block:'start'});
+  });
 }
 
 function collectChanges() {
   syncCurrentSkuSitePricing();
+  stashCurrentSkuContent();
   const attributes = [...byId("attributeRows").querySelectorAll(".attribute-row")].map((tr) => ({
     id: tr.querySelector('[data-field="id"]').value,
     value_id: tr.querySelector('[data-field="value_id"]').value,
@@ -1157,6 +1306,9 @@ function collectChanges() {
     compatibility_evidence: byId("compatibility").value,
     current_pricing_sku_id: currentSkuId,
     sku_details: skuDetails,
+    sku_content_edits: skuContentEdits,
+    sku_source_assignments: skuSourceAssignments,
+    sku_package_confirmations: skuPackageConfirmations,
     sku_listing_galleries: skuListingGalleries,
     images_human_reviewed: byId("imagesReviewed").checked,
     gallery,
@@ -1170,15 +1322,16 @@ function collectChanges() {
 }
 
 byId("addAttribute").addEventListener("click", () => byId("attributeRows").appendChild(attributeRow()));
-byId("currentSku").addEventListener("change", event => { syncCurrentSkuSitePricing(); applyCurrentSku(event.target.value); renderSkuCards(); });
+byId("currentSku").addEventListener("change", event => { syncCurrentSkuSitePricing(); stashCurrentSkuContent(); applyCurrentSku(event.target.value, true); renderSkuCards(); });
 byId("imageLanguage").addEventListener("change", () => refreshPromptLanguage().catch(error => showMessage(error.message, "error")));
 byId("generateAiImages").addEventListener("click", async () => {
   if (!selectedName) return;
   const prompts = imagePrompts.map((item, index) => ({...item, prompt: byId("imagePromptRows").querySelector(`[data-ai-prompt="${index}"]`)?.value || item.prompt}));
+  if (!confirm(`将调用付费生图接口生成 ${prompts.length} 张图片。请先查看筛选后的原图，确认需要补图后继续。`)) return;
   byId("generateAiImages").disabled = true;
   try {
     const data = await api(`/api/drafts/${encodeURIComponent(selectedName)}/generate-images`, {
-      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({language: byId("imageLanguage").value, prompts}),
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({language: byId("imageLanguage").value, prompts, confirmed:true}),
     });
     imageJob = data.job;
     renderAiImageModule();
@@ -1208,6 +1361,7 @@ document.addEventListener("click", event => {
   if (image) openImagePreview(image.currentSrc || image.src, image.alt || "图片预览");
 });
 byId("discoverCategory").addEventListener("click", () => discoverCategoryAndAttributes(false));
+byId('categoryId').addEventListener('input',()=>{familyCategoryId=byId('categoryId').value.trim();});
 byId("fillCategoryAttributes").addEventListener("click", () => discoverCategoryAndAttributes(true));
 byId("refreshCompetitors").addEventListener("click", async () => {
   if (!selectedName) return;
@@ -1283,12 +1437,18 @@ byId("saveButton").addEventListener("click", async () => {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(changes),
     });
-    if (skuListingGalleries.length > 1) {
+    if (byId("imagesReviewed").checked) {
+      await api(`/api/drafts/${encodeURIComponent(selectedName)}/review-images`, {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({gallery}),
+      });
+    }
+    if (byId("imagesReviewed").checked && skuListingGalleries.length > 1) {
       await api(`/api/drafts/${encodeURIComponent(selectedName)}/review-sku-images`, {
         method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sku_galleries: skuListingGalleries}),
       });
     }
     const missing = data.validation.errors.length;
+    await loadDraft(selectedName);
     showMessage(`已保存到当前商品，并备份修改前草稿。${missing ? `仍缺 ${missing} 项资料。` : "基础校验通过。"}`);
   } catch (error) {
     showMessage(error.message, "error");

@@ -72,7 +72,7 @@ class AIListingPipelineTests(unittest.TestCase):
         review = build_review(self.draft)
         self.assertFalse(review["publish_allowed"])
         self.assertFalse(review["human_approved"])
-        self.assertIn("缺少真实条码或平台无条码依据", review["errors"])
+        self.assertFalse(any("条码" in issue for issue in review["errors"]))
 
     def test_only_human_approved_examples_are_loaded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -92,7 +92,7 @@ class AIListingPipelineTests(unittest.TestCase):
             "site_titles": [],
         }
         issues = proposal_quality_issues(proposal, self.draft)
-        self.assertTrue(any("单薄" in issue for issue in issues))
+        self.assertTrue(any("商品明细" in issue for issue in issues))
         self.assertTrue(any("内部证据" in issue for issue in issues))
 
     def test_quality_gate_accepts_structured_english_copy(self):
@@ -112,17 +112,14 @@ class AIListingPipelineTests(unittest.TestCase):
         self.assertEqual(proposal_quality_issues(proposal, self.draft), [])
 
     def test_listing_request_uses_longer_bounded_read_timeout(self):
-        class Response:
-            def __enter__(self): return self
-            def __exit__(self, *_args): return False
-            def read(self): return b'{}'
-        with patch("src.ai_listing_pipeline.urllib.request.urlopen", return_value=Response()) as open_request:
+        with patch("src.local_model_runtime.responses", return_value={}) as local:
             call_responses_api({"base_url": "https://example.test/v1", "api_key_env": "UNUSED", "_api_key": "key"}, {})
-        self.assertEqual(open_request.call_args.kwargs["timeout"], 300)
+        self.assertEqual(local.call_args.args[2], 300)
 
     def test_listing_read_timeout_has_a_clear_retry_message(self):
-        with patch("src.ai_listing_pipeline.urllib.request.urlopen", side_effect=TimeoutError("The read operation timed out")):
-            with self.assertRaisesRegex(AIListingError, "已等待 300 秒"):
+        from src.local_model_runtime import LocalModelError
+        with patch("src.local_model_runtime.responses", side_effect=LocalModelError("本地模型请求失败（TimeoutError），没有转接收费模型")):
+            with self.assertRaisesRegex(AIListingError, "没有转接收费模型"):
                 call_responses_api({"base_url": "https://example.test/v1", "api_key_env": "UNUSED", "_api_key": "key"}, {})
 
 

@@ -32,7 +32,7 @@ class PrivateDataTransferTests(unittest.TestCase):
             self.assertEqual(export_data(archive, old), 5)
             with zipfile.ZipFile(archive) as bundle:
                 self.assertEqual(
-                    sorted(bundle.namelist()),
+                    sorted(n for n in bundle.namelist() if n != 'RESTORE_MANIFEST.json'),
                     sorted(name for name in samples if name not in {
                         ".secrets/mercadolibre_tokens.dat",
                         "data/workflow_board.json",

@@ -1,0 +1,15 @@
+{
+  "sku": "EXAMPLE-001",
+  "title": "示例商品",
+  "description": "仅用于测试校验器",
+  "supplier_url": "",
+  "purchase_cost": null,
+  "packed_weight": null,
+  "packed_dimensions": null,
+  "gtin": "",
+  "gtin_exemption_evidence": "",
+  "compatibility_evidence": "",
+  "images_human_reviewed": false,
+  "human_approved": false,
+  "requested_action": "draft"
+}

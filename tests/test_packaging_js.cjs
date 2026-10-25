@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');const P=require('../collector_extension/packaging.js');
+assert.equal(P.quantity('0.2kg','','weight'),200);
+assert.equal(P.quantity('30','mm','length'),3);
+assert.equal(P.quantity('12in','','length'),null);
+assert.equal(P.quantity('0','cm','length'),null);
+assert.equal(P.match({skuId:'a'},[{skuId:'a',weight:200,length:11,width:14,height:3},{skuId:'b',weight:400}],2).weight_g,200);
+assert.equal(P.match({skuId:'b'},[{skuId:'a',weight:200}],2),null);
+assert.equal(P.match({specId:'s2'},[{specId:'s2',weight:400}],2).weight_g,400);
+assert.equal(P.match({skuId:'a'},[{weight:200,length:11,width:14,height:3}],1).weight_g,200);
+assert.equal(P.match({skuId:'a'},[{weight:200}],2),null);
+function table(headers,rows,label='商品包装') {return {textContent:label,querySelectorAll:()=>[headers,...rows].map(r=>({querySelectorAll:()=>r.map(textContent=>({textContent}))}))};}
+let result=P.domTables([table(['SKU','长(mm)','宽(mm)','高(mm)','重量(kg)'],[['b','200','100','20','0.4'],['a','110','140','30','0.2']])],[{sku_id:'a'},{sku_id:'b'}]);
+assert.equal(result.packages.get('a').height_cm,3);assert.equal(result.packages.get('b').weight_g,400);
+result=P.domTables([table(['长(cm)','宽(cm)','高(cm)','净重(g)'],[['11','14','3','80']],'商品尺寸')],[{sku_id:'a'}]);
+assert.equal(result.packages.size,0);
+console.log('13 packaging identity/unit/unknown checks passed');
+result=P.domTables([table(['款式','尺寸','包装长(cm)','包装宽(cm)','包装高(cm)'],[['款式1','90x180cm','20','15','2'],['款式12','90x180cm','21','16','3']])],[{sku_id:'a',variant:'款式1 / 90x180cm'},{sku_id:'b',variant:'款式12 / 90x180cm'}]);
+assert.equal(result.packages.get('a').height_cm,2);assert.equal(result.packages.get('b').height_cm,3);
+let bound=P.bindImages([{sku_id:'a',spec_id:'s-a',variant:'款式1 / 90x180cm'},{sku_id:'b',spec_id:'s-b',variant:'款式12 / 90x180cm'}],[{variant:'款式1',images:['image-a']},{variant:'s-b',images:['image-b']},{variant:'90x180cm',images:['unsafe-common']}]);
+assert.deepEqual(bound.map(x=>x.images),[['image-a'],['image-b']]);
+const cells=['品牌','璟途','货号','QLMF-0103'].map(textContent=>({textContent}));
+assert.deepEqual(P.attributeRows([{querySelectorAll:q=>q.startsWith(':scope')?cells:[]}]),{'品牌':'璟途','货号':'QLMF-0103'});
+console.log('4 additional table/spec/attribute regressions passed');

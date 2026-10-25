@@ -53,7 +53,7 @@ class StubClient:
 
     def upload_picture(self, data, filename, content_type):
         self.uploads.append((data, filename, content_type))
-        return {"id": "123-CBT456_092026"}
+        return {"id": "123-CBT456_092026", "max_size": "800x800"}
 
     def post_json(self, path, payload):
         self.posts.append((path, payload))

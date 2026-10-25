@@ -2,12 +2,12 @@
   const translations = {
     REAL_PROFIT_UNVERIFIED:'真实利润待核实',
     BENCHMARK_REFERENCE_NOT_REAL_PROFIT_VERIFIED:'对标价格参考，真实利润待核实',
-    NO_GTIN_PENDING_CATEGORY_CHECK:'无条码依据待确认',
+    NO_GTIN_PENDING_CATEGORY_CHECK:'无条码商品',
     USER_INPUT_UNVERIFIED:'人工填写，尚未核实',
     AI_ESTIMATED:'AI估算，尚未核实'
   };
   let store=null,queue=null;
-  const routes=['/','/review','/publish'];
+  const routes=location.pathname.endsWith('/publish')?['/','/publish']:['/','/review','/publish'];
   function decorateSteps() {
     document.querySelectorAll('.steps>div').forEach((item,index)=>{
       const link=document.createElement('a'); link.href=routes[index]||'/'; link.className=item.className;
@@ -88,7 +88,7 @@
     pagination.querySelector('[data-next]').onclick=()=>{page++;render();};render();
   }
   function publishTarget() {
-    if(!location.pathname.endsWith('/publish')||!store)return;
+    if(!location.pathname.endsWith('/publish')||!store||document.querySelector('#publishStore'))return;
     const alias=store.alias||'未选择店铺';
     const target=document.querySelector('.target');
     if(target&&!target.dataset.v3Target){
@@ -99,7 +99,7 @@
     const select=document.querySelector('.panel.top select');
     if(select&&!select.dataset.v3Target){select.dataset.v3Target='true';select.replaceChildren(new Option(alias,store.store_id||''));select.disabled=true;select.title='请到店铺管理切换店铺';}
     const header=document.querySelector('main>header p');
-    if(header&&header.textContent!=='本版提供商品校验与预览，正式发布暂未开放。')header.textContent='本版提供商品校验与预览，正式发布暂未开放。';
+    if(header&&header.textContent!=='AI 处理完成后直接进入发布中心，无需单独审核；资料问题在这里处理。')header.textContent='AI 处理完成后直接进入发布中心，无需单独审核；资料问题在这里处理。';
     document.querySelectorAll('#batchPublish,button[data-publish],button[data-retry]').forEach(button=>{button.disabled=true;button.title='正式发布暂未开放，请先完成发布目标绑定验收';});
   }
   function update() {decorateSteps();translateLabels();repairLocalThumbnails();reviewSearch();publishTarget();reviewEvidence();storeDates();}

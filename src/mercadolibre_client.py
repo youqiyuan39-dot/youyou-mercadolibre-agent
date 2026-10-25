@@ -27,7 +27,9 @@ DATA_DIR = ROOT / "data"
 
 
 class MercadoLibreAPIError(RuntimeError):
-    pass
+    def __init__(self, message, *, http_status=None):
+        super().__init__(message)
+        self.http_status = http_status
 
 
 def _active_token_path() -> Path:
@@ -77,9 +79,9 @@ class MercadoLibreClient:
             except Exception:
                 pass
             if exc.code == 401:
-                raise MercadoLibreAPIError("Access Token 已失效，需要刷新或重新授权。") from exc
+                raise MercadoLibreAPIError("Access Token 已失效，需要刷新或重新授权。", http_status=exc.code) from exc
             suffix = f"：{detail}" if detail else ""
-            raise MercadoLibreAPIError(f"美客多 API 返回 HTTP {exc.code}{suffix}") from exc
+            raise MercadoLibreAPIError(f"美客多 API 返回 HTTP {exc.code}{suffix}", http_status=exc.code) from exc
         except urllib.error.URLError as exc:
             raise MercadoLibreAPIError("无法连接美客多 API。") from exc
 
@@ -110,9 +112,9 @@ class MercadoLibreClient:
             except Exception:
                 pass
             if exc.code == 401:
-                raise MercadoLibreAPIError("Access Token 已失效，需要刷新或重新授权。") from exc
+                raise MercadoLibreAPIError("Access Token 已失效，需要刷新或重新授权。", http_status=exc.code) from exc
             suffix = f"：{detail}" if detail else ""
-            raise MercadoLibreAPIError(f"美客多发布接口返回 HTTP {exc.code}{suffix}") from exc
+            raise MercadoLibreAPIError(f"美客多发布接口返回 HTTP {exc.code}{suffix}", http_status=exc.code) from exc
         except urllib.error.URLError as exc:
             raise MercadoLibreAPIError("无法连接美客多发布接口。") from exc
 
@@ -185,6 +187,13 @@ class MercadoLibreClient:
 class MercadoLibreCategoryClient:
     """Public, read-only category endpoints that do not need a seller token."""
 
+    def category_tree(self, site_id='CBT'):
+        if site_id != 'CBT':raise ValueError('完整类目树当前仅用于CBT')
+        from .public_read_v3 import read
+        data,_=read(f'{API_BASE}/sites/CBT/categories/all', {'Accept':'application/json'},limit=40_000_001)
+        if len(data)>40_000_000:raise ValueError('官方完整类目树超过读取预算')
+        return json.loads(data)
+
     def get(self, path: str) -> Any:
         request = urllib.request.Request(
             f"{API_BASE}{path}",
@@ -192,8 +201,9 @@ class MercadoLibreCategoryClient:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response)
+            try:from .public_read_v3 import read_json
+            except ImportError:from src.public_read_v3 import read_json
+            return read_json(f"{API_BASE}{path}")
         except urllib.error.HTTPError as exc:
             detail = ""
             try:
@@ -203,7 +213,7 @@ class MercadoLibreCategoryClient:
                 pass
             suffix = f"：{detail}" if detail else ""
             raise MercadoLibreAPIError(f"美客多类目接口返回 HTTP {exc.code}{suffix}") from exc
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, OSError) as exc:
             raise MercadoLibreAPIError("无法连接美客多类目接口。") from exc
 
     def domain_discovery(self, site_id: str, query: str) -> list[dict[str, Any]]:
@@ -335,7 +345,7 @@ def category_preflight(client: MercadoLibreClient, category_id: str) -> dict[str
         "is_leaf": not bool(category.get("children_categories")),
         "settings": {
             key: (category.get("settings") or {}).get(key)
-            for key in ("status", "max_variations_allowed", "minimum_price")
+            for key in ("status", "max_variations_allowed", "minimum_price", "catalog_domain", "listing_allowed")
         },
         "required_attributes": required,
         "recommended_attributes": recommended,

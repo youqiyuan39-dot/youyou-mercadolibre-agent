@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from typing import Any, Protocol
+from .barcode_policy import barcode_issues
 
 
 def clean_description(text: str) -> str:
@@ -65,8 +66,9 @@ def review_issues(draft: dict[str, Any], proposal: dict[str, Any] | None = None)
     provenance = str(evidence.get("gtin_source") or evidence.get("barcode_source") or gtin_row.get("source") or "").lower()
     if gtin and (any(marker in provenance for marker in ("generated", "auto", "ai_mapping", "attribute_model")) or not evidence.get("gtin")):
         issues.append("条码缺少可核验来源或为自动生成；校验位正确不能证明条码真实")
-    if evidence.get("gtin_or_exemption") == "NO_GTIN_PENDING_CATEGORY_CHECK":
-        issues.append("无条码原因仍待官方类目确认，不能视为已取得豁免依据")
+    from .quality_closeout import unresolved_packaging
+    if unresolved_packaging(draft):issues.append('包装资料存在未解决冲突，请确认含包装重量和尺寸')
+    issues.extend(barcode_issues(draft))
     for label, value in (("重量", evidence.get("packed_weight") or {}), ("尺寸", evidence.get("packed_dimensions") or {})):
         status = str(value.get("status") or "").upper()
         if any(token in status for token in ("ESTIMATE", "DEFAULT", "UNVERIFIED", "AI_")):
